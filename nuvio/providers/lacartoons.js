@@ -208,9 +208,15 @@ function decryptCubeembed(hex) {
 
 async function resolveCubeEmbed(embedUrl) {
   try {
+    let videoId;
     let hash = embedUrl.split("#")[1];
-    if (!hash) { console.log("[CUBE] No hash en URL"); return null; }
-    let videoId = hash.split("?")[0];
+    if (hash) {
+      videoId = hash.split("?")[0];
+    } else {
+      let segments = embedUrl.replace(/\/+$/, "").split("/");
+      videoId = segments[segments.length - 1].split("?")[0];
+    }
+    if (!videoId) { console.log("[CUBE] No se pudo extraer video ID"); return null; }
     console.log(`[CUBE] Video ID: ${videoId}`);
     let w = 1280, h = 720;
     let apiUrl = `${CUBE_VIDEO_API}${videoId}&w=${w}&h=${h}&r=${encodeURIComponent(LACARTOONS + "/")}`;
