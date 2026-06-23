@@ -81,6 +81,7 @@ builder.defineMetaHandler(async ({ type, id }) => {
 
 const app = express();
 app.use('/public', express.static('public'));
+app.use('/nuvio', express.static('nuvio'));
 
 const addonRouter = getRouter(builder.getInterface());
 app.use('/cartoons', addonRouter);
