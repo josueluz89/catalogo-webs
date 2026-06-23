@@ -40,10 +40,16 @@ var pe = {};
 I(pe, { getStreams: () => de });
 module.exports = B(pe);
 
+const CryptoJS = require("crypto-js");
+
 const TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
 const LACARTOONS = "https://lacartoons.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const HEADERS = { "User-Agent": UA, Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "es-MX,es;q=0.9" };
+
+const CUBE_KEY = CryptoJS.enc.Utf8.parse("kiemtienmua911ca");
+const CUBE_IV = CryptoJS.enc.Utf8.parse("1234567890oiuytr");
+const CUBE_VIDEO_API = "https://cubeembed.rpmvid.com/api/v1/video?id=";
 
 function slugify(text) {
   return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
@@ -184,6 +190,52 @@ async function getEpisodeEmbed(episodeUrl) {
   }
 }
 
+function decryptCubeembed(hex) {
+  try {
+    let parsed = CryptoJS.enc.Hex.parse(hex.trim());
+    let decrypted = CryptoJS.AES.decrypt(
+      { ciphertext: parsed },
+      CUBE_KEY,
+      { iv: CUBE_IV, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }
+    );
+    let json = decrypted.toString(CryptoJS.enc.Utf8);
+    return JSON.parse(json);
+  } catch (e) {
+    console.log("[CUBE] Decrypt error:", e.message);
+    return null;
+  }
+}
+
+async function resolveCubeEmbed(embedUrl) {
+  try {
+    let hash = embedUrl.split("#")[1];
+    if (!hash) { console.log("[CUBE] No hash en URL"); return null; }
+    let videoId = hash.split("?")[0];
+    console.log(`[CUBE] Video ID: ${videoId}`);
+    let w = 1280, h = 720;
+    let apiUrl = `${CUBE_VIDEO_API}${videoId}&w=${w}&h=${h}&r=${encodeURIComponent(LACARTOONS + "/")}`;
+    let res = await fetch(apiUrl, {
+      headers: { Referer: LACARTOONS + "/", "User-Agent": UA }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    let hex = await res.text();
+    let data = decryptCubeembed(hex);
+    if (!data || !data.source) {
+      console.log("[CUBE] No source en respuesta");
+      return null;
+    }
+    console.log(`[CUBE] Source: ${data.source.slice(0, 60)}...`);
+    return {
+      url: data.source,
+      quality: "Unknown",
+      headers: { Referer: "https://cubeembed.rpmvid.com/", "User-Agent": UA }
+    };
+  } catch (e) {
+    console.log(`[CUBE] Error: ${e.message}`);
+    return null;
+  }
+}
+
 async function resolveOkRu(embedUrl) {
   try {
     console.log(`[OK.ru] Resolviendo: ${embedUrl}`);
@@ -262,14 +314,17 @@ function de(e, t, n, s) {
       let stream = null;
       if (embedUrl.includes("ok.ru")) {
         stream = yield resolveOkRu(embedUrl);
+      } else if (embedUrl.includes("cubeembed")) {
+        stream = yield resolveCubeEmbed(embedUrl);
       } else {
         console.log(`[LACartoons] Embed ${embedUrl.split("/")[2]} no soportado aún`);
         return [];
       }
       if (!stream) return [];
       let elapsed = ((Date.now() - start) / 1000).toFixed(2);
+      let label = embedUrl.includes("ok.ru") ? "OK.ru" : "CubeEmbed";
       console.log(`[LACartoons] ✓ 1 stream en ${elapsed}s`);
-      return [{ name: "LACartoons", title: `${stream.quality} · OK.ru`, url: stream.url, quality: stream.quality, headers: stream.headers }];
+      return [{ name: "LACartoons", title: `${stream.quality} · ${label}`, url: stream.url, quality: stream.quality, headers: stream.headers }];
     } catch (e) {
       console.log(`[LACartoons] Error: ${e.message}`);
       return [];
