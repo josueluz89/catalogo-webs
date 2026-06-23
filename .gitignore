@@ -1,0 +1,4 @@
+node_modules/
+poster_cache/
+logo_cache.json
+*.log
