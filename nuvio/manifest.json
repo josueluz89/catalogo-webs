@@ -5,7 +5,7 @@
     {
       "id": "lacartoons",
       "name": "LACartoons",
-      "description": "Streams desde LACartoons.com (OK.ru)",
+      "description": "Streams desde LACartoons.com (OK.ru + CubeEmbed)",
       "version": "1.0.0",
       "author": "MasterSCR",
       "supportedTypes": ["tv"],

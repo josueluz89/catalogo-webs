@@ -40,7 +40,7 @@ var pe = {};
 I(pe, { getStreams: () => de });
 module.exports = B(pe);
 
-const CryptoJS = require("crypto-js");
+if (typeof CryptoJS === "undefined") var CryptoJS = require("crypto-js");
 
 const TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
 const LACARTOONS = "https://lacartoons.com";
@@ -117,7 +117,6 @@ async function searchLacartoons(query) {
     }
     return results;
   } catch (e) {
-    console.log("[LACartoons] Search error:", e.message);
     return [];
   }
 }
@@ -172,7 +171,6 @@ async function getSeriesEpisodes(seriesId) {
     }
     return episodes;
   } catch (e) {
-    console.log("[LACartoons] Episodes error:", e.message);
     return [];
   }
 }
@@ -185,7 +183,6 @@ async function getEpisodeEmbed(episodeUrl) {
     if (m) return m[1];
     return null;
   } catch (e) {
-    console.log("[LACartoons] Embed error:", e.message);
     return null;
   }
 }
@@ -201,7 +198,6 @@ function decryptCubeembed(hex) {
     let json = decrypted.toString(CryptoJS.enc.Utf8);
     return JSON.parse(json);
   } catch (e) {
-    console.log("[CUBE] Decrypt error:", e.message);
     return null;
   }
 }
@@ -216,53 +212,42 @@ async function resolveCubeEmbed(embedUrl) {
       let segments = embedUrl.replace(/\/+$/, "").split("/");
       videoId = segments[segments.length - 1].split("?")[0];
     }
-    if (!videoId) { console.log("[CUBE] No se pudo extraer video ID"); return null; }
-    console.log(`[CUBE] Video ID: ${videoId}`);
+    if (!videoId) return null;
     let w = 1280, h = 720;
     let apiUrl = `${CUBE_VIDEO_API}${videoId}&w=${w}&h=${h}&r=${encodeURIComponent(LACARTOONS + "/")}`;
     let res = await fetch(apiUrl, {
       headers: { Referer: LACARTOONS + "/", "User-Agent": UA }
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) return null;
     let hex = await res.text();
     let data = decryptCubeembed(hex);
-    if (!data || !data.source) {
-      console.log("[CUBE] No source en respuesta");
-      return null;
-    }
-    console.log(`[CUBE] Source: ${data.source.slice(0, 60)}...`);
+    if (!data || !data.source) return null;
     return {
       url: data.source,
       quality: "Unknown",
       headers: { Referer: "https://cubeembed.rpmvid.com/", "User-Agent": UA }
     };
   } catch (e) {
-    console.log(`[CUBE] Error: ${e.message}`);
     return null;
   }
 }
 
 async function resolveOkRu(embedUrl) {
   try {
-    console.log(`[OK.ru] Resolviendo: ${embedUrl}`);
     let res = await fetch(embedUrl, { headers: S({}, HEADERS, { Referer: LACARTOONS }) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) return null;
     let html = await res.text();
     let hlsUrl = extractJsonAttr(html);
     if (hlsUrl) {
-      console.log(`[OK.ru] HLS encontrado`);
       return { url: hlsUrl, quality: "Unknown", headers: { Referer: "https://ok.ru/", "User-Agent": UA } };
     }
     let videoUrls = extractVideoUrls(html);
     if (videoUrls.length > 0) {
       let best = videoUrls[videoUrls.length - 1];
-      console.log(`[OK.ru] Video directo encontrado`);
       return { url: best, quality: "Unknown", headers: { Referer: "https://ok.ru/", "User-Agent": UA } };
     }
-    console.log("[OK.ru] No se encontró URL de video");
     return null;
   } catch (e) {
-    console.log(`[OK.ru] Error: ${e.message}`);
     return null;
   }
 }
@@ -270,19 +255,10 @@ async function resolveOkRu(embedUrl) {
 function de(e, t, n, s) {
   return d(this, null, function* () {
     if (!e || !t) return [];
-    if (t !== "tv") {
-      console.log("[LACartoons] Solo series soportadas");
-      return [];
-    }
-    let start = Date.now();
-    console.log(`[LACartoons] Buscando: TMDB ${e} S${n || "?"}E${s || "?"}`);
+    if (t !== "tv") return [];
     try {
       let tmdb = yield fetchTMDB(e, t);
-      if (!tmdb || !tmdb.title) {
-        console.log("[LACartoons] TMDB: no se encontró título");
-        return [];
-      }
-      console.log(`[LACartoons] TMDB: "${tmdb.title}"`);
+      if (!tmdb || !tmdb.title) return [];
       let slugs = [slugify(tmdb.title)];
       if (tmdb.originalTitle && tmdb.originalTitle !== tmdb.title) slugs.push(slugify(tmdb.originalTitle));
       let seriesList = [];
@@ -294,45 +270,26 @@ function de(e, t, n, s) {
         let results = yield searchLacartoons(slugify(tmdb.title).split("-")[0]);
         if (results.length > 0) seriesList = results;
       }
-      if (seriesList.length === 0) {
-        console.log("[LACartoons] Serie no encontrada en lacartoons.com");
-        return [];
-      }
-      let bestMatch = seriesList.find(s => slugify(s.title).includes(slugs[0])) || seriesList[0];
-      console.log(`[LACartoons] Serie: ${bestMatch.title} (ID: ${bestMatch.id})`);
+      if (seriesList.length === 0) return [];
+      let bestMatch = seriesList.find(x => slugify(x.title).includes(slugs[0])) || seriesList[0];
       let episodes = yield getSeriesEpisodes(bestMatch.id);
-      if (episodes.length === 0) {
-        console.log("[LACartoons] No se encontraron episodios");
-        return [];
-      }
-      let ep = episodes.find(e => e.season === (n || 1) && e.number === (s || 1));
-      if (!ep) {
-        console.log(`[LACartoons] Episodio S${n || 1}E${s || 1} no encontrado`);
-        return [];
-      }
-      console.log(`[LACartoons] Episodio: ${ep.url}`);
+      if (episodes.length === 0) return [];
+      let ep = episodes.find(function(x) { return x.season === (n || 1) && x.number === (s || 1); });
+      if (!ep) return [];
       let embedUrl = yield getEpisodeEmbed(ep.url);
-      if (!embedUrl) {
-        console.log("[LACartoons] No se encontró embed");
-        return [];
-      }
-      console.log(`[LACartoons] Embed: ${embedUrl}`);
+      if (!embedUrl) return [];
       let stream = null;
       if (embedUrl.includes("ok.ru")) {
         stream = yield resolveOkRu(embedUrl);
       } else if (embedUrl.includes("cubeembed")) {
         stream = yield resolveCubeEmbed(embedUrl);
       } else {
-        console.log(`[LACartoons] Embed ${embedUrl.split("/")[2]} no soportado aún`);
         return [];
       }
       if (!stream) return [];
-      let elapsed = ((Date.now() - start) / 1000).toFixed(2);
       let label = embedUrl.includes("ok.ru") ? "OK.ru" : "CubeEmbed";
-      console.log(`[LACartoons] ✓ 1 stream en ${elapsed}s`);
-      return [{ name: "LACartoons", title: `${stream.quality} · ${label}`, url: stream.url, quality: stream.quality, headers: stream.headers }];
+      return [{ title: `${stream.quality} · ${label}`, url: stream.url, quality: stream.quality, headers: stream.headers }];
     } catch (e) {
-      console.log(`[LACartoons] Error: ${e.message}`);
       return [];
     }
   });
