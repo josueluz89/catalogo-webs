@@ -1,6 +1,6 @@
 /**
  * masters - Built from src/masters/
- * Generated: 2026-06-29T23:38:26.259Z
+ * Generated: 2026-06-29T23:46:45.417Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -213,7 +213,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       for (const lang of languages) {
         const langLabel = lang.label || "Latino";
         const normalizedLabel = langLabel.toLowerCase();
-        if (normalizedLabel.includes("latino") || normalizedLabel.includes("subtitulado") || normalizedLabel.includes("sub")) {
+        if (normalizedLabel.includes("latino")) {
           for (const srv of lang.servers || []) {
             let cleanSrc = (srv.src || "").replace(/\\/g, "");
             if (!cleanSrc)
@@ -247,7 +247,6 @@ function extractStreams(tmdbId, mediaType, season, episode) {
                           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
                         }
                       });
-                      continue;
                     }
                   }
                 }
@@ -285,22 +284,12 @@ function extractStreams(tmdbId, mediaType, season, episode) {
                         "Origin": "https://voe.sx/"
                       }
                     });
-                    continue;
                   }
                 }
               } catch (e) {
                 console.log(`[Masters] Failed to resolve voe.sx: ${e.message}`);
               }
             }
-            streams.push({
-              name: `GnulaHD Embed (${srv.title || "Server"})`,
-              title: `${title || query} [${langLabel}]`,
-              url: cleanSrc,
-              quality: "720p",
-              headers: {
-                "Referer": "https://ww3.gnulahd.nu/"
-              }
-            });
           }
         }
       }
