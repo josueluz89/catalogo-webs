@@ -1,102 +1,89 @@
-const express = require('express');
-const { addonBuilder, getRouter } = require('stremio-addon-sdk');
-const scraper = require('./scraper');
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
-const PORT = process.env.PORT || 3004;
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const PORT = 3000;
 
-const manifest = {
-  id: 'com.masterscr.catalogowebs',
-  version: '1.0.0',
-  name: 'Catálogo Webs',
-  description: 'Catálogo de LACartoons y más sitios',
-  logo: `${BASE_URL}/public/logo.svg`,
-  background: `${BASE_URL}/public/logo.svg`,
-  resources: ['catalog', 'meta'],
-  types: ['tv'],
-  catalogs: [
-    {
-      id: 'cartoons_catalog',
-      name: 'LACartoons',
-      type: 'tv',
-      extra: [{ name: 'search', isRequired: false }]
+function getLocalIp() {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                return iface.address;
+            }
+        }
     }
-  ]
+    return 'localhost';
+}
+
+const mimeTypes = {
+    '.json': 'application/json',
+    '.js': 'application/javascript',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.ico': 'image/x-icon',
+    '.html': 'text/html',
 };
 
-const builder = new addonBuilder(manifest);
+const server = http.createServer((req, res) => {
+    console.log(`${req.method} ${req.url}`);
 
-builder.defineCatalogHandler(async ({ type, id, extra }) => {
-  if (type !== 'tv' || id !== 'cartoons_catalog') return { metas: [] };
+    // Handle CORS
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  let series = await scraper.getCatalog();
-
-  if (extra && extra.search) {
-    const q = extra.search.toLowerCase();
-    series = series.filter(s => s.title.toLowerCase().includes(q));
-  }
-
-  const metas = series.map(s => ({
-    id: `lc_${s.id}`,
-    type: 'tv',
-    name: s.title,
-    poster: s.poster,
-    posterShape: 'poster',
-    year: s.year,
-    genres: s.category ? [s.category] : undefined
-  }));
-
-  return { metas };
-});
-
-builder.defineMetaHandler(async ({ type, id }) => {
-  if (type !== 'tv' || !id.startsWith('lc_')) return { meta: null };
-
-  const seriesId = id.replace('lc_', '');
-  const detail = await scraper.getSeriesDetail(seriesId);
-  if (!detail) return { meta: null };
-
-  return {
-    meta: {
-      id,
-      type: 'tv',
-      name: detail.title,
-      poster: detail.poster,
-      posterShape: 'poster',
-      year: detail.year,
-      genres: detail.category ? [detail.category] : undefined,
-      description: detail.description,
-      releaseInfo: detail.year ? String(detail.year) : undefined,
-      runtime: `Episodios: ${detail.episodes.length}`,
-      videos: detail.episodes.map(ep => ({
-        id: `lc_${seriesId}_ep_${ep.id}`,
-        title: ep.name,
-        season: ep.season,
-        episode: ep.number,
-        released: undefined
-      }))
+    if (req.method === 'OPTIONS') {
+        res.writeHead(200);
+        res.end();
+        return;
     }
-  };
+
+    // Prepare file path
+    let filePath = path.join(__dirname, req.url === '/' ? 'index.html' : req.url);
+
+    // Security check: prevent directory traversal
+    if (!filePath.startsWith(__dirname)) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+    }
+
+    const videoExtensions = ['.mp4', '.mkv', '.avi', '.mov'];
+
+    const extname = path.extname(filePath);
+    let contentType = mimeTypes[extname] || 'application/octet-stream';
+    if (videoExtensions.includes(extname)) {
+        contentType = "video/mp4"; // Defaulting to mp4 for video files for simplicity
+    }
+
+
+    fs.readFile(filePath, (err, content) => {
+        if (err) {
+            if (err.code === 'ENOENT') {
+                // If asking for root and index.html doesn't exist, allow checking specific files
+                if (req.url === '/') {
+                    res.writeHead(200, { 'Content-Type': 'text/plain' });
+                    res.end('Nuvio Providers Server Running. Access /manifest.json to see the manifest.');
+                    return;
+                }
+                res.writeHead(404);
+                res.end(`File not found: ${req.url}`);
+            } else {
+                res.writeHead(500);
+                res.end(`Server Error: ${err.code}`);
+            }
+        } else {
+            res.writeHead(200, { 'Content-Type': contentType });
+            res.end(content, 'utf-8');
+        }
+    });
 });
 
-const app = express();
-app.use('/public', express.static('public'));
-app.use('/nuvio', express.static('nuvio'));
-
-const addonRouter = getRouter(builder.getInterface());
-app.use('/cartoons', addonRouter);
-
-// Health check
-app.get('/health', (req, res) => res.send('OK'));
-
-app.listen(PORT, () => {
-  console.log(`[CatalogoWebs] Addon corriendo en puerto ${PORT}`);
-  console.log(`[CatalogoWebs] Manifest: ${BASE_URL}/cartoons/manifest.json`);
-
-  // Pre-warm cache
-  scraper.refreshCatalog().then(() => {
-    console.log('[CatalogoWebs] Catálogo precargado');
-  });
+server.listen(PORT, () => {
+    const ip = getLocalIp();
+    console.log(`\n🚀 Server running at: http://${ip}:${PORT}/`);
+    console.log(`📝 Manifest URL:      http://${ip}:${PORT}/manifest.json`);
+    console.log('Press Ctrl+C to stop\n');
 });
-
-module.exports = app;
