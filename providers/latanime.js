@@ -1,6 +1,6 @@
 /**
  * latanime - Built from src/latanime/
- * Generated: 2026-06-29T23:38:26.252Z
+ * Generated: 2026-06-29T23:59:32.201Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -100,6 +100,24 @@ function getMediaTitle(tmdbId, mediaType) {
 function extractStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
+      let base64Decode = function(input) {
+        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+        let str = input.replace(/=+$/, "");
+        let output = "";
+        if (str.length % 4 === 1)
+          return "";
+        for (let i = 0, bc = 0, bs = 0; i < str.length; i++) {
+          const char = str.charAt(i);
+          const idx = chars.indexOf(char);
+          if (idx === -1)
+            continue;
+          bs = bc % 4 ? bs * 64 + idx : idx;
+          if (bc++ % 4) {
+            output += String.fromCharCode(255 & bs >> (-2 * bc & 6));
+          }
+        }
+        return output;
+      };
       const { title, originalTitle } = yield getMediaTitle(tmdbId, mediaType);
       const query = title || originalTitle;
       if (!query)
@@ -215,7 +233,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       };
       for (const playerVal of playerList) {
         try {
-          const decoded = atob(playerVal);
+          const decoded = base64Decode(playerVal);
           const repUrl = `${MAIN_URL}/reproductor?url=${playerVal}`;
           console.log(`[Latanime] Fetching player: ${repUrl}`);
           const repHtml = yield fetchText(repUrl);

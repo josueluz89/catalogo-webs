@@ -1,6 +1,6 @@
 /**
  * masters - Built from src/masters/
- * Generated: 2026-06-29T23:46:45.417Z
+ * Generated: 2026-06-29T23:59:32.211Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -97,15 +97,33 @@ function replacePatterns(str) {
 function charShift(str, shift) {
   return str.split("").map((c) => String.fromCharCode(c.charCodeAt(0) - shift)).join("");
 }
+function base64Decode(input) {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+  let str = input.replace(/=+$/, "");
+  let output = "";
+  if (str.length % 4 === 1)
+    return "";
+  for (let i = 0, bc = 0, bs = 0; i < str.length; i++) {
+    const char = str.charAt(i);
+    const idx = chars.indexOf(char);
+    if (idx === -1)
+      continue;
+    bs = bc % 4 ? bs * 64 + idx : idx;
+    if (bc++ % 4) {
+      output += String.fromCharCode(255 & bs >> (-2 * bc & 6));
+    }
+  }
+  return output;
+}
 function decryptVoe(encoded) {
   try {
     const vF = rot13(encoded);
     const vF2 = replacePatterns(vF);
     const vF3 = vF2.split("_").join("");
-    const vF4 = atob(vF3);
+    const vF4 = base64Decode(vF3);
     const vF5 = charShift(vF4, 3);
     const vF6 = vF5.split("").reverse().join("");
-    const vAtob = atob(vF6);
+    const vAtob = base64Decode(vF6);
     return JSON.parse(vAtob);
   } catch (e) {
     console.log(`[Masters] Voe decryption failed: ${e.message}`);

@@ -168,10 +168,27 @@ export async function extractStreams(tmdbId, mediaType, season, episode) {
             }
         };
 
+function base64Decode(input) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+    let str = input.replace(/=+$/, '');
+    let output = '';
+    if (str.length % 4 === 1) return '';
+    for (let i = 0, bc = 0, bs = 0; i < str.length; i++) {
+        const char = str.charAt(i);
+        const idx = chars.indexOf(char);
+        if (idx === -1) continue;
+        bs = bc % 4 ? bs * 64 + idx : idx;
+        if (bc++ % 4) {
+            output += String.fromCharCode(255 & (bs >> ((-2 * bc) & 6)));
+        }
+    }
+    return output;
+}
+
         // 1. Resolve players
         for (const playerVal of playerList) {
             try {
-                const decoded = atob(playerVal);
+                const decoded = base64Decode(playerVal);
                 const repUrl = `${MAIN_URL}/reproductor?url=${playerVal}`;
                 console.log(`[Latanime] Fetching player: ${repUrl}`);
                 const repHtml = await fetchText(repUrl);

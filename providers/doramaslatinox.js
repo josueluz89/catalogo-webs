@@ -1,6 +1,6 @@
 /**
  * doramaslatinox - Built from src/doramaslatinox/
- * Generated: 2026-06-29T23:38:26.238Z
+ * Generated: 2026-06-29T23:59:32.184Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;

@@ -111,10 +111,27 @@ export async function extractStreams(tmdbId, mediaType, season, episode) {
 
         const streams = [];
 
+function base64Decode(input) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+    let str = input.replace(/=+$/, '');
+    let output = '';
+    if (str.length % 4 === 1) return '';
+    for (let i = 0, bc = 0, bs = 0; i < str.length; i++) {
+        const char = str.charAt(i);
+        const idx = chars.indexOf(char);
+        if (idx === -1) continue;
+        bs = bc % 4 ? bs * 64 + idx : idx;
+        if (bc++ % 4) {
+            output += String.fromCharCode(255 & (bs >> ((-2 * bc) & 6)));
+        }
+    }
+    return output;
+}
+
         for (const opt of options) {
             try {
                 // Decode base64
-                const decodedHtml = atob(opt.val);
+                const decodedHtml = base64Decode(opt.val);
                 const iframeMatch = decodedHtml.match(/src="([^"]+)"/);
                 if (!iframeMatch) continue;
                 let iframeUrl = iframeMatch[1].replace(/\\/g, '');
