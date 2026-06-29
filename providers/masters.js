@@ -1,6 +1,6 @@
 /**
  * masters - Built from src/masters/
- * Generated: 2026-06-29T22:57:53.090Z
+ * Generated: 2026-06-29T23:38:26.259Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
