@@ -14,17 +14,14 @@
       ],
       "filename": "providers/masters.js",
       "enabled": true,
-      "logo": "",
-      "contentLanguage": [
-        "es"
-      ],
       "formats": [
         "mp4",
         "mkv"
       ],
-      "limited": false,
-      "disabledPlatforms": [],
-      "supportsExternalPlayer": true
+      "logo": "https://www.google.com/s2/favicons?domain=gnulahd.nu&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
     }
   ]
 }
