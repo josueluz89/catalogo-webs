@@ -1,5 +1,6 @@
 /**
  * Extractor Logic for Flixlatam
+ * Resolves secure embeds, solves SHA-256 Proof of Work, and resolves Vidhide/Streamwish & Voe.sx to direct streams.
  */
 
 import { fetchText } from './http.js';
@@ -58,6 +59,102 @@ function decryptAES(encryptedBase64, powKey) {
         console.log(`[Flixlatam] Decryption error: ${e.message}`);
         return null;
     }
+}
+
+// Helpers for Voe.sx decryption
+function rot13(str) {
+    return str.replace(/[A-Za-z]/g, (c) => {
+        return String.fromCharCode(
+            c.charCodeAt(0) + (c.toUpperCase() <= 'M' ? 13 : -13)
+        );
+    });
+}
+
+function replacePatterns(str) {
+    const patterns = ["@$", "^^", "~@", "%?", "*~", "!!", "#&"];
+    let res = str;
+    for (const p of patterns) {
+        res = res.split(p).join("_");
+    }
+    return res;
+}
+
+function charShift(str, shift) {
+    return str.split('').map(c => String.fromCharCode(c.charCodeAt(0) - shift)).join('');
+}
+
+function decryptVoe(encoded) {
+    try {
+        const vF = rot13(encoded);
+        const vF2 = replacePatterns(vF);
+        const vF3 = vF2.split("_").join("");
+        const vF4 = atob(vF3);
+        const vF5 = charShift(vF4, 3);
+        const vF6 = vF5.split('').reverse().join('');
+        const vAtob = atob(vF6);
+        return JSON.parse(vAtob);
+    } catch (e) {
+        return null;
+    }
+}
+
+async function resolveVoeStream(embedUrl) {
+    try {
+        const html = await fetchText(embedUrl);
+        const $ = cheerio.load(html);
+        
+        let encodedVoe = null;
+        $('script').each((i, el) => {
+            const type = $(el).attr('type');
+            if (type === 'application/json') {
+                const text = $(el).html().trim();
+                const m = text.match(/\[\s*"([^"]+)"\s*\]/);
+                if (m) {
+                    encodedVoe = m[1];
+                }
+            }
+        });
+
+        if (encodedVoe) {
+            const decrypted = decryptVoe(encodedVoe);
+            if (decrypted) {
+                return decrypted.source || decrypted.direct_access_url;
+            }
+        }
+    } catch (e) {
+        console.log(`[Flixlatam] Failed to resolve voe: ${e.message}`);
+    }
+    return null;
+}
+
+async function resolveByseStream(embedUrl) {
+    try {
+        const u = new URL(embedUrl);
+        const code = u.pathname.split('/').pop();
+        const apiUrl = `${u.protocol}//${u.host}/api/video`;
+        
+        const res = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': embedUrl,
+                'Origin': `${u.protocol}//${u.host}`,
+                'Accept': 'application/json, text/plain, */*'
+            },
+            body: JSON.stringify({ code: code })
+        });
+        
+        if (res.ok) {
+            const json = await res.json();
+            if (json.status === 'success' && json.data && json.data.video) {
+                return json.data.video.master;
+            }
+        }
+    } catch (e) {
+        console.log(`[Flixlatam] Byse resolver error: ${e.message}`);
+    }
+    return null;
 }
 
 export async function extractStreams(tmdbId, mediaType, season, episode) {
@@ -201,15 +298,29 @@ export async function extractStreams(tmdbId, mediaType, season, episode) {
                         .replace("minochinos.com", "vidhide.com")
                         .replace("ghbrisk.com", "streamwish.to");
 
-                    streams.push({
-                        name: `Flixlatam Direct`,
-                        title: `${title || query} [Latino]`,
-                        url: fixedUrl,
-                        quality: "1080p",
-                        headers: {
-                            'Referer': iframeUrl
-                        }
-                    });
+                    // Try to resolve embed player to direct playable stream
+                    let directStreamUrl = null;
+                    
+                    if (fixedUrl.includes('voe.sx')) {
+                        console.log(`[Flixlatam] Resolving voe stream: ${fixedUrl}`);
+                        directStreamUrl = await resolveVoeStream(fixedUrl);
+                    } else if (fixedUrl.includes('byse') || fixedUrl.includes('bysedi') || fixedUrl.includes('streamwish') || fixedUrl.includes('vidhide') || fixedUrl.includes('filelions')) {
+                        console.log(`[Flixlatam] Resolving Byse stream: ${fixedUrl}`);
+                        directStreamUrl = await resolveByseStream(fixedUrl);
+                    }
+
+                    if (directStreamUrl) {
+                        streams.push({
+                            name: `Flixlatam Direct (${item.name || 'Stream'})`,
+                            title: `${title || query} [Latino]`,
+                            url: directStreamUrl,
+                            quality: "1080p",
+                            headers: {
+                                'Referer': fixedUrl,
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                            }
+                        });
+                    }
                 }
             }
         }
