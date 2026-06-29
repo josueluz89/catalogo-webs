@@ -1,26 +1,30 @@
-[
-  {
-    "id": "masters",
-    "name": "Masters (GnulaHD)",
-    "description": "Scraper de GnulaHD que proporciona enlaces de películas y series en Latino, Castellano y Subtitulado.",
-    "version": "1.0.0",
-    "author": "Masters",
-    "supportedTypes": [
-      "movie",
-      "tv"
-    ],
-    "filename": "providers/masters.js",
-    "enabled": true,
-    "logo": "",
-    "contentLanguage": [
-      "es"
-    ],
-    "formats": [
-      "mp4",
-      "mkv"
-    ],
-    "limited": false,
-    "disabledPlatforms": [],
-    "supportsExternalPlayer": true
-  }
-]
+{
+  "name": "Masters Repo",
+  "version": "1.0.0",
+  "scrapers": [
+    {
+      "id": "masters",
+      "name": "Masters (GnulaHD)",
+      "description": "Scraper de GnulaHD que proporciona enlaces de películas y series en Latino, Castellano y Subtitulado.",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/masters.js",
+      "enabled": true,
+      "logo": "",
+      "contentLanguage": [
+        "es"
+      ],
+      "formats": [
+        "mp4",
+        "mkv"
+      ],
+      "limited": false,
+      "disabledPlatforms": [],
+      "supportsExternalPlayer": true
+    }
+  ]
+}
