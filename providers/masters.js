@@ -1,6 +1,6 @@
 /**
  * masters - Built from src/masters/
- * Generated: 2026-06-29T22:26:48.278Z
+ * Generated: 2026-06-29T22:57:53.090Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -79,6 +79,39 @@ function fetchText(_0) {
 // src/masters/extractor.js
 var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
 var TMDB_API_KEY = "1f54bd990f1cdfb230adb312546d765d";
+function rot13(str) {
+  return str.replace(/[A-Za-z]/g, (c) => {
+    return String.fromCharCode(
+      c.charCodeAt(0) + (c.toUpperCase() <= "M" ? 13 : -13)
+    );
+  });
+}
+function replacePatterns(str) {
+  const patterns = ["@$", "^^", "~@", "%?", "*~", "!!", "#&"];
+  let res = str;
+  for (const p of patterns) {
+    res = res.split(p).join("_");
+  }
+  return res;
+}
+function charShift(str, shift) {
+  return str.split("").map((c) => String.fromCharCode(c.charCodeAt(0) - shift)).join("");
+}
+function decryptVoe(encoded) {
+  try {
+    const vF = rot13(encoded);
+    const vF2 = replacePatterns(vF);
+    const vF3 = vF2.split("_").join("");
+    const vF4 = atob(vF3);
+    const vF5 = charShift(vF4, 3);
+    const vF6 = vF5.split("").reverse().join("");
+    const vAtob = atob(vF6);
+    return JSON.parse(vAtob);
+  } catch (e) {
+    console.log(`[Masters] Voe decryption failed: ${e.message}`);
+    return null;
+  }
+}
 function normalizeText(text) {
   if (!text)
     return "";
@@ -168,16 +201,101 @@ function extractStreams(tmdbId, mediaType, season, episode) {
         console.log("[Masters] No video servers found in script tags");
         return [];
       }
+      let resolvePath = null;
+      let authParam = null;
+      const resolveMatch = playHtml.match(/var\s+RESOLVE\s*=\s*'([^']*)'\s*,\s*AUTH\s*=\s*'([^']*)'/);
+      if (resolveMatch) {
+        resolvePath = resolveMatch[1];
+        authParam = resolveMatch[2];
+      }
       const languages = JSON.parse(dataStr);
       const streams = [];
       for (const lang of languages) {
         const langLabel = lang.label || "Latino";
-        for (const srv of lang.servers || []) {
-          if (srv.src) {
+        const normalizedLabel = langLabel.toLowerCase();
+        if (normalizedLabel.includes("latino") || normalizedLabel.includes("subtitulado") || normalizedLabel.includes("sub")) {
+          for (const srv of lang.servers || []) {
+            let cleanSrc = (srv.src || "").replace(/\\/g, "");
+            if (!cleanSrc)
+              continue;
+            if (cleanSrc.startsWith("//")) {
+              cleanSrc = "https:" + cleanSrc;
+            }
+            if ((cleanSrc.includes("they.tube") || cleanSrc.includes("the.tube")) && resolvePath && authParam) {
+              try {
+                const codeMatch = cleanSrc.match(/the(?:y)?\.tube\/(?:e\/)?([A-Za-z0-9_-]+?)(?:\.html)?(?:[?#]|$)/i);
+                if (codeMatch) {
+                  const code = codeMatch[1];
+                  const resolveUrl = `https://ww3.gnulahd.nu${resolvePath}${encodeURIComponent(code)}${authParam}`;
+                  console.log(`[Masters] Resolving they.tube link: ${resolveUrl}`);
+                  const resolveRes = yield fetch(resolveUrl, {
+                    headers: {
+                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+                      "Referer": pageUrl
+                    }
+                  });
+                  if (resolveRes.ok) {
+                    const resolveData = yield resolveRes.json();
+                    if (resolveData && resolveData.master) {
+                      streams.push({
+                        name: `GnulaHD Direct (${srv.title || "they.tube"})`,
+                        title: `${title || query} [${langLabel}]`,
+                        url: resolveData.master,
+                        quality: "1080p",
+                        headers: {
+                          "Referer": "https://ww3.gnulahd.nu/",
+                          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
+                        }
+                      });
+                      continue;
+                    }
+                  }
+                }
+              } catch (e) {
+                console.log(`[Masters] Failed to resolve they.tube: ${e.message}`);
+              }
+            }
+            if (cleanSrc.includes("voe.sx")) {
+              try {
+                console.log(`[Masters] Resolving voe.sx link: ${cleanSrc}`);
+                const voeHtml = yield fetchText(cleanSrc);
+                const voe$ = import_cheerio_without_node_native.default.load(voeHtml);
+                let encodedVoe = null;
+                voe$("script").each((i, el) => {
+                  const type = voe$(el).attr("type");
+                  if (type === "application/json") {
+                    const text = voe$(el).html().trim();
+                    const m = text.match(/\[\s*"([^"]+)"\s*\]/);
+                    if (m) {
+                      encodedVoe = m[1];
+                    }
+                  }
+                });
+                if (encodedVoe) {
+                  const decrypted = decryptVoe(encodedVoe);
+                  const directUrl = decrypted ? decrypted.source || decrypted.direct_access_url : null;
+                  if (directUrl) {
+                    streams.push({
+                      name: `GnulaHD Direct (${srv.title || "voe.sx"})`,
+                      title: `${title || query} [${langLabel}]`,
+                      url: directUrl,
+                      quality: "720p",
+                      headers: {
+                        "Referer": cleanSrc,
+                        "Origin": "https://voe.sx/"
+                      }
+                    });
+                    continue;
+                  }
+                }
+              } catch (e) {
+                console.log(`[Masters] Failed to resolve voe.sx: ${e.message}`);
+              }
+            }
             streams.push({
-              name: `GnulaHD (${srv.title || "Servidor"})`,
+              name: `GnulaHD Embed (${srv.title || "Server"})`,
               title: `${title || query} [${langLabel}]`,
-              url: srv.src,
+              url: cleanSrc,
               quality: "720p",
               headers: {
                 "Referer": "https://ww3.gnulahd.nu/"
