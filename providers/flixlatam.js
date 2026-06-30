@@ -1,6 +1,6 @@
 /**
  * flixlatam - Built from src/flixlatam/
- * Generated: 2026-06-30T02:46:09.339Z
+ * Generated: 2026-06-30T02:50:55.763Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -91,6 +91,86 @@ function fetchWithRetry(url, options, retries, timeout) {
     });
   });
 }
+
+// src/shared/quality.js
+var KNOWN_QUALITY = {
+  vimeos: { h: "720p", n: "480p" },
+  goodstream: { x: "1080p", h: "720p", n: "480p", l: "360p" },
+  vidhide: { n: "720p", l: "480p" },
+  streamwish: { x: "1080p", h: "1080p", n: "720p", l: "480p" },
+  voe: { n: "720p", l: "360p" }
+};
+function getQualityMap(url) {
+  if (url.includes("vimeos"))
+    return KNOWN_QUALITY.vimeos;
+  if (url.includes("goodstream"))
+    return KNOWN_QUALITY.goodstream;
+  if (url.includes("cloudwindow-route"))
+    return KNOWN_QUALITY.voe;
+  if (url.includes("minochinos") || url.includes("vidhide") || url.includes("dintezuvio") || url.includes("dramiyos"))
+    return KNOWN_QUALITY.vidhide;
+  if (url.includes("premilkyway") || url.includes("hlswish") || url.includes("vibuxer") || url.includes("streamwish") || url.includes("harborviewlearninghub") || url.includes("aurorionagency") || url.includes("centaurus") || url.includes("bysedikamoum") || url.includes("filelions") || url.includes("rapidvideo"))
+    return KNOWN_QUALITY.streamwish;
+  return null;
+}
+function guessQualityFromUrl(url) {
+  if (!url)
+    return "Unknown";
+  const qmap = getQualityMap(url);
+  if (qmap) {
+    const m = url.match(/_,([a-z,]+),\.urlset/);
+    if (m) {
+      const labels = m[1].split(",").filter(Boolean);
+      const order = ["x", "o", "h", "n", "l"];
+      for (const key of order) {
+        if (labels.includes(key) && qmap[key])
+          return qmap[key];
+      }
+    }
+  }
+  const numMatch = url.match(/[_-](\d{3,4})p/);
+  return numMatch ? numMatch[1] + "p" : "Unknown";
+}
+function detectQualityFromM3U8(url) {
+  return __async(this, null, function* () {
+    try {
+      const res = yield fetchWithTimeout(url, {
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
+      });
+      if (!res.ok)
+        return guessQualityFromUrl(url);
+      const text = yield res.text();
+      if (!text.includes("#EXT-X-STREAM-INF")) {
+        return guessQualityFromUrl(url);
+      }
+      let maxH = 0, maxW = 0;
+      for (const line of text.split("\n")) {
+        const m = line.match(/RESOLUTION=(\d+)x(\d+)/);
+        if (m) {
+          const h = parseInt(m[2]);
+          if (h > maxH) {
+            maxH = h;
+            maxW = parseInt(m[1]);
+          }
+        }
+      }
+      if (maxH >= 2160)
+        return "4K";
+      if (maxH >= 1080)
+        return "1080p";
+      if (maxH >= 720)
+        return "720p";
+      if (maxH >= 480)
+        return "480p";
+      return maxH > 0 ? `${maxH}p` : guessQualityFromUrl(url);
+    } catch (e) {
+      return guessQualityFromUrl(url);
+    }
+  });
+}
+
+// src/flixlatam/extractor.js
+var import_crypto_js = __toESM(require("crypto-js"));
 
 // src/shared/voe.js
 function base64Decode(input) {
@@ -205,87 +285,56 @@ function resolveVoeStream(embedUrl) {
   });
 }
 
-// src/shared/quality.js
-var KNOWN_QUALITY = {
-  vimeos: { h: "720p", n: "480p" },
-  goodstream: { x: "1080p", h: "720p", n: "480p", l: "360p" },
-  vidhide: { n: "720p", l: "480p" },
-  streamwish: { x: "1080p", h: "1080p", n: "720p", l: "480p" },
-  voe: { n: "720p", l: "360p" }
-};
-function getQualityMap(url) {
-  if (url.includes("vimeos"))
-    return KNOWN_QUALITY.vimeos;
-  if (url.includes("goodstream"))
-    return KNOWN_QUALITY.goodstream;
-  if (url.includes("cloudwindow-route"))
-    return KNOWN_QUALITY.voe;
-  if (url.includes("minochinos") || url.includes("vidhide") || url.includes("dintezuvio") || url.includes("dramiyos"))
-    return KNOWN_QUALITY.vidhide;
-  if (url.includes("premilkyway") || url.includes("hlswish") || url.includes("vibuxer") || url.includes("streamwish") || url.includes("harborviewlearninghub") || url.includes("aurorionagency") || url.includes("centaurus") || url.includes("bysedikamoum") || url.includes("filelions") || url.includes("rapidvideo"))
-    return KNOWN_QUALITY.streamwish;
-  return null;
-}
-function guessQualityFromUrl(url) {
-  if (!url)
-    return "Unknown";
-  const qmap = getQualityMap(url);
-  if (qmap) {
-    const m = url.match(/_,([a-z,]+),\.urlset/);
-    if (m) {
-      const labels = m[1].split(",").filter(Boolean);
-      const order = ["x", "o", "h", "n", "l"];
-      for (const key of order) {
-        if (labels.includes(key) && qmap[key])
-          return qmap[key];
+// src/shared/embedResolvers.js
+function unpackPacked(html) {
+  try {
+    const pMatch = html.match(/eval\(function\(p,a,c,k,e,[rd]\)\{.*?\}\s*\('([\s\S]*?)',\s*(\d+),\s*(\d+),\s*'([\s\S]*?)'\.split\('\|'\)/);
+    if (!pMatch)
+      return null;
+    let [, p, a, c, k] = pMatch;
+    a = parseInt(a, 10);
+    c = parseInt(c, 10);
+    k = k.split("|");
+    const decodeBase36 = (num, rad) => {
+      const symbols = "0123456789abcdefghijklmnopqrstuvwxyz";
+      let res = "";
+      while (num > 0) {
+        res = symbols[num % rad] + res;
+        num = Math.floor(num / rad);
       }
-    }
+      return res || "0";
+    };
+    return p.replace(/\b\w+\b/g, (w) => {
+      const idx = parseInt(w, 36);
+      return idx < k.length && k[idx] ? k[idx] : decodeBase36(idx, a);
+    });
+  } catch (e) {
+    return null;
   }
-  const numMatch = url.match(/[_-](\d{3,4})p/);
-  return numMatch ? numMatch[1] + "p" : "Unknown";
 }
-function detectQualityFromM3U8(url) {
-  return __async(this, null, function* () {
-    try {
-      const res = yield fetchWithTimeout(url, {
-        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
-      });
-      if (!res.ok)
-        return guessQualityFromUrl(url);
-      const text = yield res.text();
-      if (!text.includes("#EXT-X-STREAM-INF")) {
-        return guessQualityFromUrl(url);
-      }
-      let maxH = 0, maxW = 0;
-      for (const line of text.split("\n")) {
-        const m = line.match(/RESOLUTION=(\d+)x(\d+)/);
-        if (m) {
-          const h = parseInt(m[2]);
-          if (h > maxH) {
-            maxH = h;
-            maxW = parseInt(m[1]);
-          }
-        }
-      }
-      if (maxH >= 2160)
-        return "4K";
-      if (maxH >= 1080)
-        return "1080p";
-      if (maxH >= 720)
-        return "720p";
-      if (maxH >= 480)
-        return "480p";
-      return maxH > 0 ? `${maxH}p` : guessQualityFromUrl(url);
-    } catch (e) {
-      return guessQualityFromUrl(url);
+function normalizeVidHideUrl(url) {
+  try {
+    const u = new URL(url);
+    if (!u.pathname.includes("/embed/")) {
+      const parts = u.pathname.split("/").filter(Boolean);
+      const code = parts.pop();
+      if (code)
+        u.pathname = `/embed/${code}`;
     }
-  });
+    return u.toString();
+  } catch (e) {
+    return url;
+  }
 }
-
-// src/flixlatam/extractor.js
-var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
-var import_crypto_js = __toESM(require("crypto-js"));
-var TMDB_API_KEY = "1f54bd990f1cdfb230adb312546d765d";
+function normalizeEmbedUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    u.pathname = u.pathname.replace(/\/download(?:\/.*)?$/, "").replace(/\/d\/(.+)/, "/v/$1").replace(/\/embed\/(.+)/, "/v/$1").replace(/\/file\/(.+)/, "/v/$1").replace(/\/f\/(.+)/, "/v/$1");
+    return u.toString();
+  } catch (e) {
+    return rawUrl;
+  }
+}
 var DOMAIN_MAP = {
   "hglink.to": "vibuxer.com",
   "ghbrisk.com": "vibuxer.com",
@@ -301,132 +350,44 @@ function mapDomain(url) {
   }
   return result;
 }
-function solvePowAsync(challenge, difficulty, salt, maxAttempts = 5e5) {
-  return new Promise((resolve, reject) => {
-    const prefix = "0".repeat(difficulty);
-    let nonce = 0;
-    let attempts = 0;
-    function chunk() {
-      const start = Date.now();
-      while (attempts < maxAttempts && Date.now() - start < 100) {
-        const hash = import_crypto_js.default.SHA256(challenge + nonce).toString(import_crypto_js.default.enc.Hex);
-        if (hash.startsWith(prefix)) {
-          resolve(import_crypto_js.default.SHA256(challenge + nonce + salt));
-          return;
-        }
-        nonce++;
-        attempts++;
-      }
-      if (attempts >= maxAttempts) {
-        reject(new Error("PoW max attempts exceeded"));
-        return;
-      }
-      setTimeout(chunk, 0);
-    }
-    chunk();
-  });
-}
-function decryptAES(encryptedBase64, powKey) {
-  try {
-    const decoded = import_crypto_js.default.enc.Base64.parse(encryptedBase64);
-    const iv = import_crypto_js.default.lib.WordArray.create(decoded.words.slice(0, 4), 16);
-    const ciphertext = import_crypto_js.default.lib.WordArray.create(decoded.words.slice(4), decoded.sigBytes - 16);
-    const decrypted = import_crypto_js.default.AES.decrypt(
-      { ciphertext },
-      powKey,
-      { iv, mode: import_crypto_js.default.mode.CBC, padding: import_crypto_js.default.pad.Pkcs7 }
-    );
-    return decrypted.toString(import_crypto_js.default.enc.Utf8);
-  } catch (e) {
-    return null;
-  }
-}
-function unpackPacked(source) {
-  try {
-    const m = source.match(/eval\(function\(p,a,c,k,e,[rd]\)\{[\s\S]*?\}\s*\('([\s\S]*?)',\s*(\d+),\s*(\d+),\s*'([\s\S]*?)'\.split\('\|'\)/);
-    if (!m)
-      return null;
-    const [, str, base, count, dictStr] = m;
-    const dict = dictStr.split("|");
-    const alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const decode = (s) => {
-      let n = 0;
-      for (const ch of s) {
-        const idx = alphabet.indexOf(ch);
-        if (idx === -1)
-          return NaN;
-        n = n * parseInt(base) + idx;
-      }
-      return n;
-    };
-    return str.replace(/\b([0-9a-zA-Z]+)\b/g, (w) => {
-      const n = decode(w);
-      return dict[n] && dict[n] !== "" ? dict[n] : w;
-    });
-  } catch (e) {
-    return null;
-  }
-}
 function resolveHLSWishStream(embedUrl) {
   return __async(this, null, function* () {
     try {
-      const origin = new URL(embedUrl).origin;
-      const html = yield fetchWithRetry(embedUrl, {
+      const targetUrl = mapDomain(embedUrl).replace("/e/", "/v/");
+      const origin = new URL(targetUrl).origin;
+      const html = yield fetchWithRetry(targetUrl, {
         headers: {
-          Referer: "https://flixlatam.com/",
-          Origin: "https://flixlatam.com",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          Referer: "https://embed69.org/",
+          Origin: "https://embed69.org",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           "Accept-Language": "es-MX,es;q=0.9"
         }
       });
       const fileMatch = html.match(/file\s*:\s*["']([^"']+)["']/i);
       if (fileMatch) {
-        let url = fileMatch[1];
-        if (url.startsWith("/"))
-          url = origin + url;
-        if (url.includes("vibuxer.com/stream/")) {
-          try {
-            const redirRes = yield fetchWithTimeout(url, {
-              headers: { "User-Agent": "Mozilla/5.0", Referer: origin + "/" }
-            });
-            if (redirRes.url && redirRes.url.includes(".m3u8")) {
-              url = redirRes.url;
-            }
-          } catch (e) {
-          }
-        }
-        const quality = yield detectQualityFromM3U8(url);
-        return { url, quality, headers: { Referer: origin + "/", "User-Agent": "Mozilla/5.0" } };
+        let fileUrl = fileMatch[1];
+        if (fileUrl.startsWith("/"))
+          fileUrl = origin + fileUrl;
+        const quality = yield detectQualityFromM3U8(fileUrl);
+        return { url: fileUrl, quality, headers: { Referer: origin + "/" } };
       }
       const unpacked = unpackPacked(html);
       if (unpacked) {
-        const hlsMatch = unpacked.match(/"hls[234]"\s*:\s*"([^"]+)"/);
-        if (hlsMatch) {
-          let url = hlsMatch[1];
-          if (url.startsWith("/"))
-            url = origin + url;
-          const quality = yield detectQualityFromM3U8(url);
-          return { url, quality, headers: { Referer: origin + "/", "User-Agent": "Mozilla/5.0" } };
+        const srcMatch = unpacked.match(/["']([^"']{30,}\.m3u8[^"']*)['"]/i);
+        if (srcMatch) {
+          let fileUrl = srcMatch[1];
+          if (fileUrl.startsWith("/"))
+            fileUrl = origin + fileUrl;
+          const quality = yield detectQualityFromM3U8(fileUrl);
+          return { url: fileUrl, quality, headers: { Referer: origin + "/" } };
         }
-      }
-      const bareMatch = html.match(/https?:\/\/[^"'\s\\]+\.m3u8[^"'\s\\]*/i);
-      if (bareMatch) {
-        const quality = yield detectQualityFromM3U8(bareMatch[0]);
-        return { url: bareMatch[0], quality, headers: { Referer: origin + "/" } };
       }
       return null;
     } catch (e) {
       return null;
     }
   });
-}
-function normalizeVidHideUrl(rawUrl) {
-  try {
-    const u = new URL(rawUrl);
-    u.pathname = u.pathname.replace(/\/download(?:\/.*)?$/, "").replace(/\/d\/(.+)/, "/v/$1").replace(/\/file\/(.+)/, "/v/$1").replace(/\/f\/(.+)/, "/v/$1");
-    return u.toString();
-  } catch (e) {
-    return rawUrl;
-  }
 }
 function resolveVidHideProStream(embedUrl) {
   return __async(this, null, function* () {
@@ -435,7 +396,7 @@ function resolveVidHideProStream(embedUrl) {
       const origin = new URL(normalizedUrl).origin;
       const html = yield fetchWithRetry(normalizedUrl, {
         headers: {
-          Referer: origin + "/",
+          Referer: "https://embed69.org/",
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
           "Sec-Fetch-Dest": "empty",
           "Sec-Fetch-Mode": "cors",
@@ -453,9 +414,8 @@ function resolveVidHideProStream(embedUrl) {
       }
       if (!script) {
         const srcMatch = html.match(/<script[^>]*>([\s\S]*?sources:[\s\S]*?)<\/script>/i);
-        if (srcMatch) {
+        if (srcMatch)
           script = srcMatch[1];
-        }
       }
       if (!script)
         return null;
@@ -486,7 +446,7 @@ function resolveFilemoonStream(embedUrl) {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:137.0) Gecko/20100101 Firefox/137.0"
       };
       const initialResponse = yield fetchWithRetry(embedUrl, {
-        headers: __spreadProps(__spreadValues({}, defaultHeaders), { Referer: "https://flixlatam.com/" })
+        headers: __spreadProps(__spreadValues({}, defaultHeaders), { Referer: "https://embed69.org/" })
       });
       const iframeSrc = initialResponse.match(/<iframe[^>]*src=["']([^"']+)["']/i);
       if (iframeSrc) {
@@ -597,15 +557,6 @@ function resolveUqloadStream(embedUrl) {
     }
   });
 }
-function normalizeEmbedUrl(rawUrl) {
-  try {
-    const u = new URL(rawUrl);
-    u.pathname = u.pathname.replace(/\/download(?:\/.*)?$/, "").replace(/\/d\/(.+)/, "/v/$1").replace(/\/embed\/(.+)/, "/v/$1").replace(/\/file\/(.+)/, "/v/$1").replace(/\/f\/(.+)/, "/v/$1");
-    return u.toString();
-  } catch (e) {
-    return rawUrl;
-  }
-}
 function getEmbedResolver(url) {
   if (url.includes("voe.sx") || url.includes("cloudwindow-route.com")) {
     return resolveVoeStream;
@@ -645,6 +596,49 @@ function getServerLabel(url) {
   if (url.includes("vimeos"))
     return "Vimeos";
   return "Online";
+}
+
+// src/flixlatam/extractor.js
+var TMDB_API_KEY = "1f54bd990f1cdfb230adb312546d765d";
+function solvePowAsync(challenge, difficulty, salt, maxAttempts = 5e5) {
+  return new Promise((resolve, reject) => {
+    const prefix = "0".repeat(difficulty);
+    let nonce = 0;
+    let attempts = 0;
+    function chunk() {
+      const start = Date.now();
+      while (attempts < maxAttempts && Date.now() - start < 100) {
+        const hash = import_crypto_js.default.SHA256(challenge + nonce).toString(import_crypto_js.default.enc.Hex);
+        if (hash.startsWith(prefix)) {
+          resolve(import_crypto_js.default.SHA256(challenge + nonce + salt));
+          return;
+        }
+        nonce++;
+        attempts++;
+      }
+      if (attempts >= maxAttempts) {
+        reject(new Error("PoW max attempts exceeded"));
+        return;
+      }
+      setTimeout(chunk, 0);
+    }
+    chunk();
+  });
+}
+function decryptAES(encryptedBase64, powKey) {
+  try {
+    const decoded = import_crypto_js.default.enc.Base64.parse(encryptedBase64);
+    const iv = import_crypto_js.default.lib.WordArray.create(decoded.words.slice(0, 4), 16);
+    const ciphertext = import_crypto_js.default.lib.WordArray.create(decoded.words.slice(4), decoded.sigBytes - 16);
+    const decrypted = import_crypto_js.default.AES.decrypt(
+      { ciphertext },
+      powKey,
+      { iv, mode: import_crypto_js.default.mode.CBC, padding: import_crypto_js.default.pad.Pkcs7 }
+    );
+    return decrypted.toString(import_crypto_js.default.enc.Utf8) || null;
+  } catch (e) {
+    return null;
+  }
 }
 function getImdbId(tmdbId, mediaType) {
   return __async(this, null, function* () {
