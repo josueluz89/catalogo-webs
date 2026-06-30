@@ -252,7 +252,7 @@ function getPlayPage(pageUrl) {
           if ((cleanSrc.indexOf('they.tube') !== -1 || cleanSrc.indexOf('the.tube') !== -1) && resolvePath && authParam) {
             var codeMatch = cleanSrc.match(/the(?:y)?\.tube\/(?:e\/)?([A-Za-z0-9_-]+?)(?:\.html)?(?:[?#]|$)/i);
             if (codeMatch) {
-              (function(src, title) {
+               (function(src, title) {
                 promises.push(
                   resolveTheyTube(codeMatch[1], resolvePath, authParam, pageUrl)
                     .then(function(result) {
@@ -263,14 +263,6 @@ function getPlayPage(pageUrl) {
                           url: result.url,
                           quality: result.quality || 'HD',
                           headers: result.headers,
-                        });
-                      } else {
-                        streams.push({
-                          name: 'GnulaHD (' + (title || 'Tube') + ')',
-                          title: 'Embed · Latino · ' + (title || 'Tube'),
-                          url: src,
-                          quality: 'Unknown',
-                          headers: { Referer: pageUrl, 'User-Agent': 'Mozilla/5.0' },
                         });
                       }
                     })
@@ -296,34 +288,12 @@ function getPlayPage(pageUrl) {
                         quality: result.quality || 'HD',
                         headers: result.headers,
                       });
-                    } else {
-                      streams.push({
-                        name: 'GnulaHD (' + (srvTitle || sLabel) + ')',
-                        title: 'Embed · Latino · ' + (srvTitle || sLabel),
-                        url: fixedUrl,
-                        quality: 'Unknown',
-                        headers: { Referer: pageUrl, 'User-Agent': 'Mozilla/5.0' },
-                      });
                     }
                   })
                   .catch(function() {
-                    streams.push({
-                      name: 'GnulaHD (' + (srvTitle || sLabel) + ')',
-                      title: 'Embed · Latino · ' + (srvTitle || sLabel),
-                      url: fixedUrl,
-                      quality: 'Unknown',
-                      headers: { Referer: pageUrl, 'User-Agent': 'Mozilla/5.0' },
-                    });
+                    // Do nothing, skip non-working link
                   })
               );
-            } else {
-              streams.push({
-                name: 'GnulaHD (' + (srvTitle || sLabel) + ')',
-                title: 'Embed · Latino · ' + (srvTitle || sLabel),
-                url: fixedUrl,
-                quality: 'Unknown',
-                headers: { Referer: pageUrl, 'User-Agent': 'Mozilla/5.0' },
-              });
             }
           })(cleanSrc, srv.title, serverLabel);
         }

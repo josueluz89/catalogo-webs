@@ -1,6 +1,6 @@
 /**
  * masters - Built from src/masters/
- * Generated: 2026-06-30T03:20:02.202Z
+ * Generated: 2026-06-30T22:53:16.854Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -832,14 +832,6 @@ function getPlayPage(pageUrl) {
                       quality: result.quality || "HD",
                       headers: result.headers
                     });
-                  } else {
-                    streams.push({
-                      name: "GnulaHD (" + (title || "Tube") + ")",
-                      title: "Embed \xB7 Latino \xB7 " + (title || "Tube"),
-                      url: src,
-                      quality: "Unknown",
-                      headers: { Referer: pageUrl, "User-Agent": "Mozilla/5.0" }
-                    });
                   }
                 })
               );
@@ -862,33 +854,10 @@ function getPlayPage(pageUrl) {
                     quality: result.quality || "HD",
                     headers: result.headers
                   });
-                } else {
-                  streams.push({
-                    name: "GnulaHD (" + (srvTitle || sLabel) + ")",
-                    title: "Embed \xB7 Latino \xB7 " + (srvTitle || sLabel),
-                    url: fixedUrl,
-                    quality: "Unknown",
-                    headers: { Referer: pageUrl, "User-Agent": "Mozilla/5.0" }
-                  });
                 }
               }).catch(function() {
-                streams.push({
-                  name: "GnulaHD (" + (srvTitle || sLabel) + ")",
-                  title: "Embed \xB7 Latino \xB7 " + (srvTitle || sLabel),
-                  url: fixedUrl,
-                  quality: "Unknown",
-                  headers: { Referer: pageUrl, "User-Agent": "Mozilla/5.0" }
-                });
               })
             );
-          } else {
-            streams.push({
-              name: "GnulaHD (" + (srvTitle || sLabel) + ")",
-              title: "Embed \xB7 Latino \xB7 " + (srvTitle || sLabel),
-              url: fixedUrl,
-              quality: "Unknown",
-              headers: { Referer: pageUrl, "User-Agent": "Mozilla/5.0" }
-            });
           }
         })(cleanSrc, srv.title, serverLabel);
       }
