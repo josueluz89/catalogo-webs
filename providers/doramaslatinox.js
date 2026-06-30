@@ -1,10 +1,12 @@
 /**
  * doramaslatinox - Built from src/doramaslatinox/
- * Generated: 2026-06-29T23:59:32.184Z
+ * Generated: 2026-06-30T00:19:50.848Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
+var __defProps = Object.defineProperties;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getOwnPropSymbols = Object.getOwnPropertySymbols;
 var __getProtoOf = Object.getPrototypeOf;
@@ -22,6 +24,7 @@ var __spreadValues = (a, b) => {
     }
   return a;
 };
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -59,19 +62,122 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// src/doramaslatinox/http.js
-var HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-};
-function fetchText(_0) {
-  return __async(this, arguments, function* (url, options = {}) {
-    const response = yield fetch(url, __spreadValues({
-      headers: __spreadValues(__spreadValues({}, HEADERS), options.headers)
-    }, options));
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status} for ${url}`);
+// src/shared/http.js
+var FETCH_TIMEOUT = 15e3;
+function fetchWithTimeout(_0) {
+  return __async(this, arguments, function* (url, options = {}, timeout = FETCH_TIMEOUT) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      const response = yield fetch(url, __spreadProps(__spreadValues({}, options), {
+        signal: controller.signal,
+        headers: __spreadValues({
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }, options.headers),
+        redirect: "follow"
+      }));
+      return response;
+    } finally {
+      clearTimeout(timer);
     }
-    return yield response.text();
+  });
+}
+function fetchText(_0) {
+  return __async(this, arguments, function* (url, options = {}, timeout = FETCH_TIMEOUT) {
+    const res = yield fetchWithTimeout(url, options, timeout);
+    if (!res.ok)
+      throw new Error(`HTTP ${res.status} for ${url}`);
+    return yield res.text();
+  });
+}
+function fetchWithRetry(_0) {
+  return __async(this, arguments, function* (url, options = {}, retries = 2, timeout = FETCH_TIMEOUT) {
+    for (let i = 0; i <= retries; i++) {
+      try {
+        return yield fetchText(url, options, timeout);
+      } catch (e) {
+        if (i === retries)
+          throw e;
+        yield new Promise((r) => setTimeout(r, 1e3 * (i + 1)));
+      }
+    }
+  });
+}
+
+// src/shared/quality.js
+var KNOWN_QUALITY = {
+  vimeos: { h: "720p", n: "480p" },
+  goodstream: { x: "1080p", h: "720p", n: "480p", l: "360p" },
+  vidhide: { n: "720p", l: "480p" },
+  streamwish: { x: "1080p", h: "1080p", n: "720p", l: "480p" },
+  voe: { n: "720p", l: "360p" }
+};
+function getQualityMap(url) {
+  if (url.includes("vimeos"))
+    return KNOWN_QUALITY.vimeos;
+  if (url.includes("goodstream"))
+    return KNOWN_QUALITY.goodstream;
+  if (url.includes("cloudwindow-route"))
+    return KNOWN_QUALITY.voe;
+  if (url.includes("minochinos") || url.includes("vidhide") || url.includes("dintezuvio") || url.includes("dramiyos"))
+    return KNOWN_QUALITY.vidhide;
+  if (url.includes("premilkyway") || url.includes("hlswish") || url.includes("vibuxer") || url.includes("streamwish"))
+    return KNOWN_QUALITY.streamwish;
+  return null;
+}
+function guessQualityFromUrl(url) {
+  if (!url)
+    return "Unknown";
+  const qmap = getQualityMap(url);
+  if (qmap) {
+    const m = url.match(/_,([a-z,]+),\.urlset/);
+    if (m) {
+      const labels = m[1].split(",").filter(Boolean);
+      const order = ["x", "o", "h", "n", "l"];
+      for (const key of order) {
+        if (labels.includes(key) && qmap[key])
+          return qmap[key];
+      }
+    }
+  }
+  const numMatch = url.match(/[_-](\d{3,4})p/);
+  return numMatch ? numMatch[1] + "p" : "Unknown";
+}
+function detectQualityFromM3U8(url) {
+  return __async(this, null, function* () {
+    try {
+      const res = yield fetchWithTimeout(url, {
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
+      });
+      if (!res.ok)
+        return guessQualityFromUrl(url);
+      const text = yield res.text();
+      if (!text.includes("#EXT-X-STREAM-INF")) {
+        return guessQualityFromUrl(url);
+      }
+      let maxH = 0, maxW = 0;
+      for (const line of text.split("\n")) {
+        const m = line.match(/RESOLUTION=(\d+)x(\d+)/);
+        if (m) {
+          const h = parseInt(m[2]);
+          if (h > maxH) {
+            maxH = h;
+            maxW = parseInt(m[1]);
+          }
+        }
+      }
+      if (maxH >= 2160)
+        return "4K";
+      if (maxH >= 1080)
+        return "1080p";
+      if (maxH >= 720)
+        return "720p";
+      if (maxH >= 480)
+        return "480p";
+      return maxH > 0 ? `${maxH}p` : guessQualityFromUrl(url);
+    } catch (e) {
+      return guessQualityFromUrl(url);
+    }
   });
 }
 
@@ -89,9 +195,8 @@ function getMediaTitle(tmdbId, mediaType) {
   return __async(this, null, function* () {
     const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&language=es-MX`;
     const res = yield fetch(url);
-    if (!res.ok) {
+    if (!res.ok)
       throw new Error(`Failed to fetch from TMDB: ${res.status}`);
-    }
     const data = yield res.json();
     const title = mediaType === "movie" ? data.title : data.name;
     const originalTitle = mediaType === "movie" ? data.original_title : data.original_name;
@@ -110,7 +215,6 @@ function decryptAES(hexStr, keyStr, ivStr) {
     );
     return decrypted.toString(import_crypto_js.default.enc.Utf8);
   } catch (e) {
-    console.error(`[DoramasLatinoX] AES Decryption error: ${e.message}`);
     return null;
   }
 }
@@ -122,15 +226,14 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       if (!query)
         return [];
       const searchUrl = `${MAIN_URL}/?s=${encodeURIComponent(query)}`;
-      console.log(`[DoramasLatinoX] Searching: ${searchUrl}`);
-      const html = yield fetchText(searchUrl);
+      const html = yield fetchWithRetry(searchUrl);
       const $ = import_cheerio_without_node_native.default.load(html);
       const candidates = [];
-      $("div.result-item article").each((i, el) => {
-        const titleElement = $(el).find("div.details div.title a");
-        const href = titleElement.attr("href");
-        const name = titleElement.text().trim();
-        if (href) {
+      $("div.result-item article, article.result-item, div.item, article.post, article").each((i, el) => {
+        const titleElement = $(el).find('div.details div.title a, h3 a, h2 a, a[href*="doramafox"]').first();
+        const href = titleElement.attr("href") || $(el).find("a").first().attr("href");
+        const name = titleElement.text().trim() || $(el).find("img").attr("alt") || "";
+        if (href && name) {
           candidates.push({ name, href });
         }
       });
@@ -147,19 +250,20 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       if (!targetUrl && candidates.length > 0) {
         targetUrl = candidates[0].href;
       }
-      if (!targetUrl) {
-        console.log("[DoramasLatinoX] Media not found on DoramasLatinoX");
+      if (!targetUrl)
         return [];
-      }
       let pageUrl = targetUrl;
+      if (pageUrl && !pageUrl.startsWith("http")) {
+        pageUrl = MAIN_URL + pageUrl;
+      }
       if (mediaType === "tv") {
-        console.log(`[DoramasLatinoX] Fetching TV series page: ${pageUrl}`);
-        const tvHtml = yield fetchText(pageUrl);
+        const tvHtml = yield fetchWithRetry(pageUrl);
         const tv$ = import_cheerio_without_node_native.default.load(tvHtml);
         let epUrl = null;
-        tv$("ul.episodios a").each((i, el) => {
+        tv$('ul.episodios a, div.episodios a, a[href*="episodio"], a[href*="capitulo"]').each((i, el) => {
+          var _a;
           const href = tv$(el).attr("href");
-          const numText = tv$(el).find("div.numerando").text() || "";
+          const numText = tv$(el).find("div.numerando, span.numerando").text() || ((_a = tv$(el).text().match(/(\d+)x(\d+)/)) == null ? void 0 : _a[0]) || "1-1";
           const parts = numText.split("-");
           const s = parseInt(parts[0], 10) || 1;
           const e = parseInt(parts[1], 10) || 1;
@@ -167,17 +271,17 @@ function extractStreams(tmdbId, mediaType, season, episode) {
             epUrl = href;
           }
         });
-        if (!epUrl) {
-          console.log(`[DoramasLatinoX] Episode S${season}E${episode} not found`);
+        if (!epUrl)
           return [];
-        }
         pageUrl = epUrl;
+        if (!pageUrl.startsWith("http")) {
+          pageUrl = MAIN_URL + pageUrl;
+        }
       }
-      console.log(`[DoramasLatinoX] Fetching player page: ${pageUrl}`);
-      const playHtml = yield fetchText(pageUrl);
+      const playHtml = yield fetchWithRetry(pageUrl);
       const play$ = import_cheerio_without_node_native.default.load(playHtml);
       const playerOptions = [];
-      play$("li.dooplay_player_option").each((i, el) => {
+      play$("li.dooplay_player_option, div.dooplay_player_option, a[data-post]").each((i, el) => {
         const post = play$(el).attr("data-post");
         const type = play$(el).attr("data-type");
         const nume = play$(el).attr("data-nume");
@@ -185,12 +289,13 @@ function extractStreams(tmdbId, mediaType, season, episode) {
           playerOptions.push({ post, type, nume });
         }
       });
-      console.log(`[DoramasLatinoX] Found ${playerOptions.length} player options`);
       const streams = [];
+      const knownKeys = [
+        { key: "kiemtienmua911ca", ivs: ["1234567890oiuytr", "0123456789abcdef"] }
+      ];
       for (const opt of playerOptions) {
         try {
           const apiUrl = `${MAIN_URL}/wp-json/dooplayer/v2/${opt.post}/${opt.type}/${opt.nume}`;
-          console.log(`[DoramasLatinoX] Fetching player API: ${apiUrl}`);
           const apiRes = yield fetch(apiUrl);
           if (!apiRes.ok)
             continue;
@@ -199,65 +304,61 @@ function extractStreams(tmdbId, mediaType, season, episode) {
           if (!embedUrl)
             continue;
           embedUrl = embedUrl.replace(/\\/g, "");
-          console.log(`[DoramasLatinoX] Fetching embed page: ${embedUrl}`);
-          const embedHtml = yield fetchText(embedUrl, {
-            headers: { "Referer": pageUrl }
+          const embedHtml = yield fetchWithRetry(embedUrl, {
+            headers: { Referer: pageUrl }
           });
           const embed$ = import_cheerio_without_node_native.default.load(embedHtml);
           const iframeSrc = embed$("iframe").attr("src") || embedUrl;
-          if (iframeSrc.includes("p2pplay.online") || iframeSrc.includes("doramasfoxito")) {
+          let resolved = false;
+          if (iframeSrc.includes("p2pplay.online") || iframeSrc.includes("doramasfoxito") || iframeSrc.includes("uns.bio")) {
             const hash = iframeSrc.split("#").pop().split("/").pop();
             const u = new URL(iframeSrc);
             const baseurl = `${u.protocol}//${u.host}`;
             const videoApiUrl = `${baseurl}/api/v1/video?id=${hash}`;
-            console.log(`[DoramasLatinoX] Resolving secure player API: ${videoApiUrl}`);
-            const encoded = (yield fetchText(videoApiUrl)).trim();
-            const key = "kiemtienmua911ca";
-            const ivList = ["1234567890oiuytr", "0123456789abcdef"];
-            let decryptedText = null;
-            for (const iv of ivList) {
-              try {
-                const decrypted = decryptAES(encoded, key, iv);
-                if (decrypted && decrypted.includes('"source"')) {
-                  decryptedText = decrypted;
-                  break;
-                }
-              } catch (e) {
-              }
-            }
-            if (decryptedText) {
-              const parsed = JSON.parse(decryptedText);
-              if (parsed.source) {
-                streams.push({
-                  name: `DoramasLatinoX Direct`,
-                  title: `${title || query} [Latino]`,
-                  url: parsed.source,
-                  quality: "1080p",
-                  headers: {
-                    "Referer": iframeSrc,
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0"
+            const encoded = (yield fetchWithRetry(videoApiUrl)).trim();
+            for (const k of knownKeys) {
+              for (const iv of k.ivs) {
+                try {
+                  const decrypted = decryptAES(encoded, k.key, iv);
+                  if (decrypted && decrypted.includes('"source"')) {
+                    const parsed = JSON.parse(decrypted);
+                    if (parsed.source) {
+                      const quality = yield detectQualityFromM3U8(parsed.source);
+                      streams.push({
+                        name: "DoramasLatinoX Direct",
+                        title: `${quality || "HD"} \xB7 Latino`,
+                        url: parsed.source,
+                        quality: quality || "1080p",
+                        headers: {
+                          Referer: iframeSrc,
+                          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0"
+                        }
+                      });
+                      resolved = true;
+                      break;
+                    }
                   }
-                });
-                continue;
+                } catch (e) {
+                }
               }
+              if (resolved)
+                break;
             }
           }
-          streams.push({
-            name: `DoramasLatinoX Embed`,
-            title: `${title || query} [Latino]`,
-            url: iframeSrc,
-            quality: "720p",
-            headers: {
-              "Referer": MAIN_URL
-            }
-          });
+          if (!resolved) {
+            streams.push({
+              name: "DoramasLatinoX Embed",
+              title: "Embed \xB7 Latino",
+              url: iframeSrc,
+              quality: "Unknown",
+              headers: { Referer: MAIN_URL }
+            });
+          }
         } catch (err) {
-          console.log(`[DoramasLatinoX] Failed resolving option: ${err.message}`);
         }
       }
       return streams;
     } catch (e) {
-      console.error(`[DoramasLatinoX] Error in extractor: ${e.message}`);
       return [];
     }
   });

@@ -1,10 +1,12 @@
 /**
  * animeytx - Built from src/animeytx/
- * Generated: 2026-06-29T23:59:32.176Z
+ * Generated: 2026-06-30T00:19:50.840Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
+var __defProps = Object.defineProperties;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getOwnPropSymbols = Object.getOwnPropertySymbols;
 var __getProtoOf = Object.getPrototypeOf;
@@ -22,6 +24,7 @@ var __spreadValues = (a, b) => {
     }
   return a;
 };
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -59,19 +62,32 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// src/animeytx/http.js
-var HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-};
-function fetchText(_0) {
-  return __async(this, arguments, function* (url, options = {}) {
-    const response = yield fetch(url, __spreadValues({
-      headers: __spreadValues(__spreadValues({}, HEADERS), options.headers)
-    }, options));
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status} for ${url}`);
+// src/shared/http.js
+var FETCH_TIMEOUT = 15e3;
+function fetchWithTimeout(_0) {
+  return __async(this, arguments, function* (url, options = {}, timeout = FETCH_TIMEOUT) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      const response = yield fetch(url, __spreadProps(__spreadValues({}, options), {
+        signal: controller.signal,
+        headers: __spreadValues({
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }, options.headers),
+        redirect: "follow"
+      }));
+      return response;
+    } finally {
+      clearTimeout(timer);
     }
-    return yield response.text();
+  });
+}
+function fetchText(_0) {
+  return __async(this, arguments, function* (url, options = {}, timeout = FETCH_TIMEOUT) {
+    const res = yield fetchWithTimeout(url, options, timeout);
+    if (!res.ok)
+      throw new Error(`HTTP ${res.status} for ${url}`);
+    return yield res.text();
   });
 }
 

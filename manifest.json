@@ -127,6 +127,37 @@
       "contentLanguage": [
         "es"
       ]
+    },
+    {
+      "id": "cinecalidad",
+      "name": "CineCalidad",
+      "description": "Películas en Latino desde CineCalidad. Vimeos, VOE, StreamWish.",
+      "version": "2.0.0",
+      "author": "KennethJYS",
+      "supportedTypes": [
+        "movie"
+      ],
+      "filename": "providers/cinecalidad.js",
+      "enabled": true,
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "embed69",
+      "name": "Embed69",
+      "description": "Streams en Latino/Español/Subtitulado desde Embed69. StreamWish, VOE, VidHide.",
+      "version": "2.0.0",
+      "author": "KennethJYS",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/embed69.js",
+      "enabled": true,
+      "contentLanguage": [
+        "es"
+      ]
     }
   ]
 }
