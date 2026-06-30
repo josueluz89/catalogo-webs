@@ -1,4 +1,4 @@
-import { fetchWithRetry } from './http.js';
+import { fetchWithRetry } from '../shared/http.js';
 import { detectQualityFromM3U8 } from '../shared/quality.js';
 import CryptoJS from 'crypto-js';
 import {

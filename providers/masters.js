@@ -1,6 +1,6 @@
 /**
  * masters - Built from src/masters/
- * Generated: 2026-06-30T02:50:55.795Z
+ * Generated: 2026-06-30T03:03:52.640Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -555,6 +555,25 @@ function normalizeText(text) {
     return "";
   return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
 }
+function getServerLabel(url) {
+  if (url.indexOf("voe.sx") !== -1 || url.indexOf("tubeless") !== -1 || url.indexOf("simpulum") !== -1 || url.indexOf("uroch") !== -1 || url.indexOf("nathanfromsubject") !== -1 || url.indexOf("yip.su") !== -1 || url.indexOf("metagnath") !== -1 || url.indexOf("donaldlineelse") !== -1 || url.indexOf("crystal") !== -1 || url.indexOf("cloudwindow") !== -1)
+    return "VOE";
+  if (url.indexOf("they.tube") !== -1 || url.indexOf("the.tube") !== -1)
+    return "Tube";
+  if (url.indexOf("filemoon") !== -1 || url.indexOf("bysedi") !== -1)
+    return "FileMoon";
+  if (url.indexOf("streamwish") !== -1 || url.indexOf("hlswish") !== -1 || url.indexOf("vibuxer") !== -1 || url.indexOf("strwish") !== -1)
+    return "StreamWish";
+  if (url.indexOf("vidhide") !== -1 || url.indexOf("dintezuvio") !== -1 || url.indexOf("filelions") !== -1)
+    return "VidHide";
+  if (url.indexOf("uqload") !== -1)
+    return "Uqload";
+  if (url.indexOf("luluvid") !== -1 || url.indexOf("lulus") !== -1)
+    return "Lulu";
+  if (url.indexOf("ok.ru") !== -1 || url.indexOf("ok video") !== -1)
+    return "OK";
+  return "Online";
+}
 function extractSearchResults(html) {
   var candidates = [];
   var articleRegex = /<article[^>]*class="([^"]*)"[^>]*>([\s\S]*?)<\/article>/gi;
@@ -820,6 +839,7 @@ function getPlayPage(pageUrl) {
             continue;
           }
         }
+        var serverLabel = getServerLabel(cleanSrc);
         (function(srcUrl, srvTitle, sLabel) {
           var fixedUrl = mapDomain(srcUrl);
           var resolver = getEmbedResolver(fixedUrl);

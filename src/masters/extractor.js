@@ -280,6 +280,7 @@ function getPlayPage(pageUrl) {
             }
           }
 
+          var serverLabel = getServerLabel(cleanSrc);
           (function(srcUrl, srvTitle, sLabel) {
             var fixedUrl = mapDomain(srcUrl);
             var resolver = getEmbedResolver(fixedUrl);
