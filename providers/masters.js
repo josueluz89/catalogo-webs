@@ -1,98 +1,26 @@
 /**
  * masters - Built from src/masters/
- * Generated: 2026-06-30T02:02:05.726Z
+ * Generated: 2026-06-30T02:27:02.860Z
  */
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __defProps = Object.defineProperties;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getOwnPropSymbols = Object.getOwnPropertySymbols;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __propIsEnum = Object.prototype.propertyIsEnumerable;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __spreadValues = (a, b) => {
-  for (var prop in b || (b = {}))
-    if (__hasOwnProp.call(b, prop))
-      __defNormalProp(a, prop, b[prop]);
-  if (__getOwnPropSymbols)
-    for (var prop of __getOwnPropSymbols(b)) {
-      if (__propIsEnum.call(b, prop))
-        __defNormalProp(a, prop, b[prop]);
-    }
-  return a;
-};
-var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
 
 // src/shared/http.js
-var FETCH_TIMEOUT = 15e3;
-function fetchWithTimeout(_0) {
-  return __async(this, arguments, function* (url, options = {}, timeout = FETCH_TIMEOUT) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-    try {
-      const response = yield fetch(url, __spreadProps(__spreadValues({}, options), {
-        signal: controller.signal,
-        headers: __spreadValues({
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }, options.headers),
-        redirect: "follow"
-      }));
-      return response;
-    } finally {
-      clearTimeout(timer);
-    }
-  });
+function fetchWithTimeout(url, options, timeout) {
+  if (!options)
+    options = {};
+  var headers = Object.assign({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  }, options.headers || {});
+  return fetch(url, Object.assign({}, options, { headers, redirect: "follow" }));
 }
-function fetchText(_0) {
-  return __async(this, arguments, function* (url, options = {}, timeout = FETCH_TIMEOUT) {
-    const res = yield fetchWithTimeout(url, options, timeout);
+function fetchText(url, options, timeout) {
+  return fetchWithTimeout(url, options, timeout).then(function(res) {
     if (!res.ok)
-      throw new Error(`HTTP ${res.status} for ${url}`);
-    return yield res.text();
+      throw new Error("HTTP " + res.status + " for " + url);
+    return res.text();
   });
 }
 
 // src/masters/extractor.js
-var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
 var TMDB_API_KEY = "1f54bd990f1cdfb230adb312546d765d";
 var MAIN_URL = "https://ww3.gnulahd.nu";
 function normalizeText(text) {
@@ -100,238 +28,313 @@ function normalizeText(text) {
     return "";
   return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
 }
-function getMediaTitle(tmdbId, mediaType) {
-  return __async(this, null, function* () {
-    const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&language=es-MX`;
-    const res = yield fetch(url);
-    if (!res.ok)
-      throw new Error(`Failed to fetch from TMDB: ${res.status}`);
-    const data = yield res.json();
-    const title = mediaType === "movie" ? data.title : data.name;
-    const originalTitle = mediaType === "movie" ? data.original_title : data.original_name;
-    const year = (data.release_date || data.first_air_date || "").split("-")[0];
-    return { title, originalTitle, year };
-  });
-}
 function getServerLabel(url) {
-  if (url.includes("voe.sx") || url.includes("tubeless") || url.includes("simpulum") || url.includes("uroch") || url.includes("nathanfromsubject") || url.includes("yip.su") || url.includes("metagnath") || url.includes("donaldlineelse") || url.includes("crystal") || url.includes("cloudwindow"))
+  if (url.indexOf("voe.sx") !== -1 || url.indexOf("tubeless") !== -1 || url.indexOf("simpulum") !== -1 || url.indexOf("uroch") !== -1 || url.indexOf("nathanfromsubject") !== -1 || url.indexOf("yip.su") !== -1 || url.indexOf("metagnath") !== -1 || url.indexOf("donaldlineelse") !== -1 || url.indexOf("crystal") !== -1 || url.indexOf("cloudwindow") !== -1)
     return "VOE";
-  if (url.includes("they.tube") || url.includes("the.tube"))
+  if (url.indexOf("they.tube") !== -1 || url.indexOf("the.tube") !== -1)
     return "Tube";
-  if (url.includes("filemoon") || url.includes("bysedi"))
+  if (url.indexOf("filemoon") !== -1 || url.indexOf("bysedi") !== -1)
     return "FileMoon";
-  if (url.includes("streamwish") || url.includes("hlswish") || url.includes("vibuxer") || url.includes("strwish"))
+  if (url.indexOf("streamwish") !== -1 || url.indexOf("hlswish") !== -1 || url.indexOf("vibuxer") !== -1 || url.indexOf("strwish") !== -1)
     return "StreamWish";
-  if (url.includes("vidhide") || url.includes("dintezuvio") || url.includes("filelions"))
+  if (url.indexOf("vidhide") !== -1 || url.indexOf("dintezuvio") !== -1 || url.indexOf("filelions") !== -1)
     return "VidHide";
-  if (url.includes("uqload"))
+  if (url.indexOf("uqload") !== -1)
     return "Uqload";
-  if (url.includes("luluvid") || url.includes("lulus"))
+  if (url.indexOf("luluvid") !== -1 || url.indexOf("lulus") !== -1)
     return "Lulu";
-  if (url.includes("ok.ru") || url.includes("ok video"))
+  if (url.indexOf("ok.ru") !== -1 || url.indexOf("ok video") !== -1)
     return "OK";
   return "Online";
 }
-function resolveTheyTube(code, resolvePath, authParam, pageUrl) {
-  return __async(this, null, function* () {
-    try {
-      const resolveUrl = `${MAIN_URL}${resolvePath}${encodeURIComponent(code)}${authParam}`;
-      const res = yield fetch(resolveUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36", Referer: pageUrl }
-      });
-      if (!res.ok)
-        return null;
-      const data = yield res.json();
-      if (data && data.master) {
-        return { url: data.master, quality: "1080p", headers: { Referer: MAIN_URL + "/", "User-Agent": "Mozilla/5.0" } };
-      }
-      return null;
-    } catch (e) {
-      return null;
+function extractSearchResults(html) {
+  var candidates = [];
+  var articleRegex = /<article[^>]*class="([^"]*)"[^>]*>([\s\S]*?)<\/article>/gi;
+  var article;
+  while ((article = articleRegex.exec(html)) !== null) {
+    var cls = article[1];
+    var content = article[2];
+    if (/styleegg/i.test(cls))
+      continue;
+    if (/\/blog\//i.test(content))
+      continue;
+    var href = (content.match(/<a[^>]*href="([^"]*)"[^>]*>/) || [])[1];
+    var titleAttr = (content.match(/title="([^"]*)"/) || [])[1];
+    var h2Text = (content.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i) || [])[1];
+    var itemTitle = (h2Text || titleAttr || "").replace(/<[^>]*>/g, "").trim();
+    if (!href || !itemTitle)
+      continue;
+    if (/mejores|cronología/i.test(itemTitle))
+      continue;
+    var typeText = (content.match(/<div[^>]*class="[^"]*typez[^"]*"[^>]*>([\s\S]*?)<\/div>/i) || [])[1] || "";
+    var type = /serie/i.test(typeText) || /anime/i.test(typeText) ? "tv" : "movie";
+    candidates.push({ title: itemTitle, href, type });
+  }
+  return candidates;
+}
+function extractEpisodes(html, season, episode) {
+  var eplister = html.match(/<div[^>]*class="[^"]*eplister[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\!--/i);
+  if (!eplister)
+    eplister = html.match(/<div[^>]*class="[^"]*eplister[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+  if (!eplister)
+    return null;
+  var liRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+  var li;
+  while ((li = liRegex.exec(eplister[1])) !== null) {
+    var liContent = li[1];
+    var aHref = (liContent.match(/<a[^>]*href="([^"]*)"[^>]*>/i) || [])[1];
+    var epNum = (liContent.match(/<div[^>]*class="[^"]*epl-num[^"]*"[^>]*>([\s\S]*?)<\/div>/i) || [])[1];
+    if (!aHref || !epNum)
+      continue;
+    var match = epNum.match(/(\d+)x(\d+)/);
+    if (match) {
+      var s = parseInt(match[1], 10);
+      var e = parseInt(match[2], 10);
+      if (s === season && e === episode)
+        return aHref;
     }
+  }
+  return null;
+}
+function getMediaTitle(tmdbId, mediaType) {
+  var url = "https://api.themoviedb.org/3/" + mediaType + "/" + tmdbId + "?api_key=" + TMDB_API_KEY + "&language=es-MX";
+  return fetchText(url).then(function(raw) {
+    var data = JSON.parse(raw);
+    var title = mediaType === "movie" ? data.title : data.name;
+    var originalTitle = mediaType === "movie" ? data.original_title : data.original_name;
+    return { title, originalTitle };
+  });
+}
+function resolveTheyTube(code, resolvePath, authParam, pageUrl) {
+  var resolveUrl = MAIN_URL + resolvePath + encodeURIComponent(code) + authParam;
+  return fetchText(resolveUrl, {
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36", Referer: pageUrl }
+  }).then(function(raw) {
+    var data = JSON.parse(raw);
+    if (data && data.master) {
+      return { url: data.master, quality: "1080p", headers: { Referer: MAIN_URL + "/", "User-Agent": "Mozilla/5.0" } };
+    }
+    return null;
+  }).catch(function() {
+    return null;
+  });
+}
+function searchSite(query) {
+  var searchUrl = MAIN_URL + "/?s=" + encodeURIComponent(query);
+  return fetchText(searchUrl).then(function(html) {
+    return extractSearchResults(html);
   });
 }
 function extractStreams(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    try {
-      const { title, originalTitle } = yield getMediaTitle(tmdbId, mediaType);
-      const query = title || originalTitle;
-      if (!query)
-        return [];
-      const searchUrl = `${MAIN_URL}/?s=${encodeURIComponent(query)}`;
-      const html = yield fetchText(searchUrl);
-      const $ = import_cheerio_without_node_native.default.load(html);
-      const candidates = [];
-      $("div.listupd article.bs").each((i, el) => {
-        const $el = $(el);
-        if ($el.hasClass("styleegg"))
-          return;
-        const aTag = $el.find("div.bsx > a");
-        const itemTitle = aTag.attr("title") || $el.find("div.tt h2").text().trim();
-        const href = aTag.attr("href");
-        const typeText = $el.find("div.typez").text().trim();
-        if (!href || !itemTitle || href.includes("/blog/"))
-          return;
-        if (itemTitle.includes("Mejores") || itemTitle.includes("Cronolog\xEDa"))
-          return;
-        const type = typeText.includes("Serie") ? "tv" : typeText.includes("Anime") ? "tv" : "movie";
-        candidates.push({ title: itemTitle, href, type, typeText });
-      });
-      let targetUrl = null;
-      let targetType = "movie";
-      const normalizedQuery = normalizeText(query);
-      const normalizedOriginal = normalizeText(originalTitle);
-      const expectedType = mediaType === "tv" ? "tv" : "movie";
-      let bestTvScore = -1;
-      let bestTvUrl = null;
-      let bestMovieScore = -1;
-      let bestMovieUrl = null;
-      for (const cand of candidates) {
-        const normalizedCand = normalizeText(cand.title);
-        let score = 0;
-        if (normalizedCand === normalizedQuery || normalizedCand === normalizedOriginal) {
+  return getMediaTitle(tmdbId, mediaType).then(function(media) {
+    var queries = [];
+    if (media.originalTitle)
+      queries.push(media.originalTitle);
+    if (media.title && media.title !== media.originalTitle)
+      queries.push(media.title);
+    if (queries.length === 0)
+      return [];
+    var normalizedOriginals = [normalizeText(media.originalTitle || "")];
+    var normalizedTitles = [normalizeText(media.title || "")];
+    var expectedType = mediaType === "tv" ? "tv" : "movie";
+    var bestTvScore = -1, bestTvUrl = null, bestTvType = "movie";
+    var bestMovieScore = -1, bestMovieUrl = null, bestMovieType = "movie";
+    function scoreCandidate(cand) {
+      var normalizedCand = normalizeText(cand.title);
+      var score = 0;
+      for (var n = 0; n < normalizedOriginals.length; n++) {
+        var no = normalizedOriginals[n];
+        if (normalizedCand === no)
           score = 100;
-        } else if (normalizedCand.includes(normalizedQuery) || normalizedCand.includes(normalizedOriginal)) {
-          score = 60;
-        } else {
-          const qWords = normalizedQuery.split(" ").filter(Boolean);
-          const oWords = normalizedOriginal.split(" ").filter(Boolean);
-          const cWords = normalizedCand.split(" ").filter(Boolean);
-          const qMatch = qWords.filter((w) => normalizedCand.includes(w)).length;
-          const oMatch = oWords.filter((w) => normalizedCand.includes(w)).length;
-          const cMatch = cWords.filter((w) => normalizedQuery.includes(w) || normalizedOriginal.includes(w)).length;
-          score = qMatch * 8 + oMatch * 8 + cMatch * 5;
-        }
-        if (cand.type === "tv" && score > bestTvScore) {
-          bestTvScore = score;
-          bestTvUrl = cand.href;
-        }
-        if (cand.type === "movie" && score > bestMovieScore) {
-          bestMovieScore = score;
-          bestMovieUrl = cand.href;
-        }
+        else if (normalizedCand.indexOf(no) !== -1 || no.indexOf(normalizedCand) !== -1)
+          score = Math.max(score, 80);
       }
+      for (var n = 0; n < normalizedTitles.length; n++) {
+        var nt = normalizedTitles[n];
+        if (normalizedCand === nt)
+          score = Math.max(score, 100);
+        else if (normalizedCand.indexOf(nt) !== -1 || nt.indexOf(normalizedCand) !== -1)
+          score = Math.max(score, 80);
+      }
+      if (score === 0) {
+        var qWords = [];
+        for (var n = 0; n < normalizedOriginals.length; n++)
+          qWords = qWords.concat(normalizedOriginals[n].split(" ").filter(Boolean));
+        for (var n = 0; n < normalizedTitles.length; n++)
+          qWords = qWords.concat(normalizedTitles[n].split(" ").filter(Boolean));
+        var unique = {};
+        qWords = qWords.filter(function(w2) {
+          if (unique[w2])
+            return false;
+          unique[w2] = true;
+          return true;
+        });
+        var cWords = normalizedCand.split(" ").filter(Boolean);
+        var qMatch = 0, cMatch = 0;
+        for (var w = 0; w < qWords.length; w++) {
+          if (normalizedCand.indexOf(qWords[w]) !== -1)
+            qMatch++;
+        }
+        for (var w = 0; w < cWords.length; w++) {
+          for (var q = 0; q < qWords.length; q++) {
+            if (qWords[q] === cWords[w]) {
+              cMatch++;
+              break;
+            }
+          }
+        }
+        score = qMatch * 8 + cMatch * 5;
+      }
+      if (cand.type === "tv" && score > bestTvScore) {
+        bestTvScore = score;
+        bestTvUrl = cand.href;
+        bestTvType = cand.type;
+      }
+      if (cand.type === "movie" && score > bestMovieScore) {
+        bestMovieScore = score;
+        bestMovieUrl = cand.href;
+        bestMovieType = cand.type;
+      }
+    }
+    function selectTarget() {
+      var targetUrl, targetType = "movie";
       if (expectedType === "tv" && bestTvUrl) {
         targetUrl = bestTvUrl;
+        targetType = bestTvType;
       } else if (expectedType === "movie" && bestMovieUrl) {
         targetUrl = bestMovieUrl;
+        targetType = bestMovieType;
       } else {
-        targetUrl = bestTvUrl || bestMovieUrl || (candidates.length > 0 ? candidates[0].href : null);
-      }
-      if (targetUrl) {
-        const matched = candidates.find((c) => c.href === targetUrl);
-        if (matched)
-          targetType = matched.type;
+        targetUrl = bestTvUrl || bestMovieUrl;
+        targetType = bestTvType || bestMovieType;
       }
       if (!targetUrl)
-        return [];
-      let pageUrl = targetUrl;
-      if (!pageUrl.startsWith("http"))
-        pageUrl = MAIN_URL + pageUrl;
-      if (mediaType === "tv" || targetType === "tv") {
-        const tvHtml = yield fetchText(pageUrl);
-        const tv$ = import_cheerio_without_node_native.default.load(tvHtml);
-        let epUrl = null;
-        tv$("div.eplister ul li").each((i, el) => {
-          const a = tv$(el).find("a");
-          const href = a.attr("href");
-          const epnumtext = a.find("div.epl-num").text().trim();
-          const regex2 = /(\d+)x(\d+)/;
-          const match2 = regex2.exec(epnumtext);
-          if (match2) {
-            const s = parseInt(match2[1], 10);
-            const e = parseInt(match2[2], 10);
-            if (s === season && e === episode) {
-              epUrl = href;
-            }
-          }
-        });
-        if (!epUrl)
-          return [];
-        pageUrl = epUrl;
-        if (!pageUrl.startsWith("http"))
-          pageUrl = MAIN_URL + pageUrl;
-      }
-      const playHtml = yield fetchText(pageUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" }
+        return null;
+      if (targetUrl.indexOf("http") !== 0)
+        targetUrl = MAIN_URL + targetUrl;
+      return { url: targetUrl, type: targetType };
+    }
+    var searchIndex = 0;
+    function doSearch() {
+      if (searchIndex >= queries.length)
+        return selectTarget();
+      return searchSite(queries[searchIndex++]).then(function(candidates) {
+        for (var i = 0; i < candidates.length; i++)
+          scoreCandidate(candidates[i]);
+        return doSearch();
       });
-      const regex = /var\s+(_gnpv_ep_langs|_gd)\s*=\s*(\[.*\]);/;
-      const match = regex.exec(playHtml);
-      if (!match)
+    }
+    return doSearch().then(function(target) {
+      if (!target)
         return [];
-      let resolvePath = null;
-      let authParam = null;
-      const resolveMatch = playHtml.match(/var\s+RESOLVE\s*=\s*'([^']*)'\s*,\s*AUTH\s*=\s*'([^']*)'/);
-      if (resolveMatch) {
-        resolvePath = resolveMatch[1];
-        authParam = resolveMatch[2];
-      }
-      const langs = JSON.parse(match[2]);
-      const streams = [];
-      for (const langobj of langs) {
-        const label = langobj.label || "";
-        const normalizedLabel = label.toLowerCase();
-        if (!normalizedLabel.includes("latino") && !normalizedLabel.includes("mx"))
-          continue;
-        for (const srv of langobj.servers || []) {
-          let cleanSrc = (srv.src || "").replace(/\\\//g, "/");
-          if (!cleanSrc)
-            continue;
-          if (cleanSrc.startsWith("//"))
-            cleanSrc = "https:" + cleanSrc;
-          if ((cleanSrc.includes("they.tube") || cleanSrc.includes("the.tube")) && resolvePath && authParam) {
-            const codeMatch = cleanSrc.match(/the(?:y)?\.tube\/(?:e\/)?([A-Za-z0-9_-]+?)(?:\.html)?(?:[?#]|$)/i);
-            if (codeMatch) {
-              const result = yield resolveTheyTube(codeMatch[1], resolvePath, authParam, pageUrl);
-              if (result) {
-                streams.push({
-                  name: `GnulaHD (${srv.title || "Tube"})`,
-                  title: `${result.quality || "HD"} \xB7 Latino \xB7 ${srv.title || "Tube"}`,
-                  url: result.url,
-                  quality: result.quality || "HD",
-                  headers: result.headers
-                });
-              } else {
-                streams.push({
-                  name: `GnulaHD (${srv.title || "Tube"})`,
-                  title: `Embed \xB7 Latino \xB7 ${srv.title || "Tube"}`,
-                  url: cleanSrc,
-                  quality: "Unknown",
-                  headers: { Referer: pageUrl, "User-Agent": "Mozilla/5.0" }
-                });
-              }
-            }
-            continue;
-          }
-          const serverLabel = getServerLabel(cleanSrc);
-          streams.push({
-            name: `GnulaHD (${srv.title || serverLabel})`,
-            title: `Embed \xB7 Latino \xB7 ${srv.title || serverLabel}`,
-            url: cleanSrc,
-            quality: "Unknown",
-            headers: { Referer: pageUrl, "User-Agent": "Mozilla/5.0" }
-          });
-        }
-      }
-      return streams;
-    } catch (err) {
-      console.error(`[Masters] Error: ${err.message}`);
+      return getPageContent(target.url, mediaType, target.type, season, episode, media);
+    });
+  }).catch(function(err) {
+    console.error("[Masters] Error: " + (err.message || err));
+    return [];
+  });
+}
+function getPageContent(pageUrl, mediaType, targetType, season, episode, media) {
+  var isTv = mediaType === "tv" || targetType === "tv";
+  if (isTv) {
+    return fetchText(pageUrl).then(function(tvHtml) {
+      var epUrl = extractEpisodes(tvHtml, season, episode);
+      if (!epUrl)
+        return [];
+      if (epUrl.indexOf("http") !== 0)
+        epUrl = MAIN_URL + epUrl;
+      return getPlayPage(epUrl);
+    });
+  }
+  return getPlayPage(pageUrl);
+}
+function getPlayPage(pageUrl) {
+  return fetchText(pageUrl, {
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" }
+  }).then(function(playHtml) {
+    var regex = /var\s+(_gnpv_ep_langs|_gd)\s*=\s*(\[.*\]);/;
+    var match = regex.exec(playHtml);
+    if (!match)
+      return [];
+    var resolvePath = null, authParam = null;
+    var resolveMatch = playHtml.match(/var\s+RESOLVE\s*=\s*'([^']*)'\s*,\s*AUTH\s*=\s*'([^']*)'/);
+    if (resolveMatch) {
+      resolvePath = resolveMatch[1];
+      authParam = resolveMatch[2];
+    }
+    var langs;
+    try {
+      langs = JSON.parse(match[2]);
+    } catch (e) {
       return [];
     }
+    var streams = [];
+    var promises = [];
+    for (var l = 0; l < langs.length; l++) {
+      var langobj = langs[l];
+      var label = langobj.label || "";
+      if (label.toLowerCase().indexOf("latino") === -1 && label.toLowerCase().indexOf("mx") === -1)
+        continue;
+      var servers = langobj.servers || [];
+      for (var s = 0; s < servers.length; s++) {
+        var srv = servers[s];
+        var cleanSrc = (srv.src || "").replace(/\\\//g, "/");
+        if (!cleanSrc)
+          continue;
+        if (cleanSrc.indexOf("//") === 0)
+          cleanSrc = "https:" + cleanSrc;
+        if ((cleanSrc.indexOf("they.tube") !== -1 || cleanSrc.indexOf("the.tube") !== -1) && resolvePath && authParam) {
+          var codeMatch = cleanSrc.match(/the(?:y)?\.tube\/(?:e\/)?([A-Za-z0-9_-]+?)(?:\.html)?(?:[?#]|$)/i);
+          if (codeMatch) {
+            promises.push(
+              resolveTheyTube(codeMatch[1], resolvePath, authParam, pageUrl).then(/* @__PURE__ */ function(result, src, title) {
+                return function() {
+                  if (result) {
+                    streams.push({
+                      name: "GnulaHD (" + (title || "Tube") + ")",
+                      title: (result.quality || "HD") + " \xB7 Latino \xB7 " + (title || "Tube"),
+                      url: result.url,
+                      quality: result.quality || "HD",
+                      headers: result.headers
+                    });
+                  } else {
+                    streams.push({
+                      name: "GnulaHD (" + (title || "Tube") + ")",
+                      title: "Embed \xB7 Latino \xB7 " + (title || "Tube"),
+                      url: src,
+                      quality: "Unknown",
+                      headers: { Referer: pageUrl, "User-Agent": "Mozilla/5.0" }
+                    });
+                  }
+                };
+              }(codeMatch, cleanSrc, srv.title))
+            );
+            continue;
+          }
+        }
+        var serverLabel = getServerLabel(cleanSrc);
+        streams.push({
+          name: "GnulaHD (" + (srv.title || serverLabel) + ")",
+          title: "Embed \xB7 Latino \xB7 " + (srv.title || serverLabel),
+          url: cleanSrc,
+          quality: "Unknown",
+          headers: { Referer: pageUrl, "User-Agent": "Mozilla/5.0" }
+        });
+      }
+    }
+    if (promises.length > 0) {
+      return Promise.all(promises).then(function() {
+        return streams;
+      });
+    }
+    return streams;
   });
 }
 
 // src/masters/index.js
 function getStreams(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    try {
-      console.log(`[Masters] Request: ${mediaType} ${tmdbId} (S${season}E${episode})`);
-      const streams = yield extractStreams(tmdbId, mediaType, season, episode);
-      return streams;
-    } catch (error) {
-      console.error(`[Masters] Error in getStreams: ${error.message}`);
-      return [];
-    }
+  return extractStreams(tmdbId, mediaType, season, episode).catch(function() {
+    return [];
   });
 }
 module.exports = { getStreams };
