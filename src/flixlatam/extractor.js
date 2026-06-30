@@ -185,7 +185,13 @@ async function resolveVidHideStream(embedUrl) {
     const unpacked = unpackPacked(html);
     if (!unpacked) return null;
 
-    const hlsMatch = unpacked.match(/"hls4"\s*:\s*"([^"]+)"/) || unpacked.match(/"hls2"\s*:\s*"([^"]+)"/);
+    let hlsMatch = unpacked.match(/"hls[234]"\s*:\s*"([^"]+)"/);
+    if (!hlsMatch) {
+      hlsMatch = unpacked.match(/sources\s*:\s*\[\s*\{[^}]*?file\s*:\s*"([^"]+\.m3u8[^"]*)"/i);
+    }
+    if (!hlsMatch) {
+      hlsMatch = unpacked.match(/https?:\/\/[^"'\s\\]+\.m3u8[^"'\s\\]*/i);
+    }
     if (!hlsMatch) return null;
 
     let url = hlsMatch[1];
@@ -199,36 +205,17 @@ async function resolveVidHideStream(embedUrl) {
   }
 }
 
-async function resolveByseStream(embedUrl) {
+function normalizeEmbedUrl(rawUrl) {
   try {
-    const u = new URL(embedUrl);
-    const code = u.pathname.split('/').pop();
-    const apiUrl = `${u.protocol}//${u.host}/api/video`;
-
-    const res = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0',
-        Referer: embedUrl,
-        Origin: `${u.protocol}//${u.host}`,
-      },
-      body: JSON.stringify({ code }),
-    });
-
-    if (res.ok) {
-      const json = await res.json();
-      if (json.status === 'success' && json.data) {
-        const videoUrl = json.data.master || json.data.video?.master || json.data.url;
-        if (videoUrl) {
-          const quality = await detectQualityFromM3U8(videoUrl);
-          return { url: videoUrl, quality, headers: { Referer: embedUrl, Origin: `${u.protocol}//${u.host}` } };
-        }
-      }
-    }
-    return null;
-  } catch (e) {
-    return null;
+    const u = new URL(rawUrl);
+    u.pathname = u.pathname
+      .replace(/\/download(?:\/.*)?$/, '')
+      .replace(/\/d\/(.+)/, '/v/$1')
+      .replace(/\/embed\/(.+)/, '/v/$1')
+      .replace(/\/f\/(.+)/, '/v/$1');
+    return u.toString();
+  } catch {
+    return rawUrl;
   }
 }
 
@@ -238,15 +225,17 @@ function getEmbedResolver(url) {
   }
   if (url.includes('hlswish') || url.includes('streamwish') || url.includes('vibuxer') ||
       url.includes('strwish') || url.includes('hglink') || url.includes('ghbrisk') ||
-      url.includes('premilkyway')) {
+      url.includes('premilkyway') || url.includes('bysedikamoum') || url.includes('bysedi') ||
+      url.includes('filelions') || url.includes('rapidvideo')) {
     return resolveHLSWishStream;
   }
   if (url.includes('vidhide') || url.includes('dintezuvio') || url.includes('minochinos') ||
-      url.includes('dramiyos')) {
+      url.includes('dramiyos') || url.includes('dhcplay') || url.includes('smoothpre') ||
+      url.includes('dhtpre') || url.includes('vidspeeder') || url.includes('moorearn') ||
+      url.includes('travid') || url.includes('vidhidehub') || url.includes('vidhidevip') ||
+      url.includes('vidhidepre') || url.includes('kinoger') || url.includes('movearnpre') ||
+      url.includes('peytonepre')) {
     return resolveVidHideStream;
-  }
-  if (url.includes('byse') || url.includes('bysedi') || url.includes('filelions')) {
-    return resolveByseStream;
   }
   return null;
 }
@@ -254,9 +243,14 @@ function getEmbedResolver(url) {
 function getServerLabel(url) {
   if (url.includes('voe.sx') || url.includes('cloudwindow')) return 'VOE';
   if (url.includes('streamwish') || url.includes('hlswish') || url.includes('vibuxer') ||
-      url.includes('strwish') || url.includes('premilkyway')) return 'StreamWish';
+      url.includes('strwish') || url.includes('premilkyway') || url.includes('bysedikamoum') ||
+      url.includes('bysedi') || url.includes('filelions') || url.includes('rapidvideo')) return 'StreamWish';
   if (url.includes('vidhide') || url.includes('dintezuvio') || url.includes('minochinos') ||
-      url.includes('dramiyos')) return 'VidHide';
+      url.includes('dramiyos') || url.includes('dhcplay') || url.includes('smoothpre') ||
+      url.includes('dhtpre') || url.includes('vidspeeder') || url.includes('moorearn') ||
+      url.includes('travid') || url.includes('vidhidehub') || url.includes('vidhidevip') ||
+      url.includes('vidhidepre') || url.includes('kinoger') || url.includes('movearnpre') ||
+      url.includes('peytonepre')) return 'VidHide';
   if (url.includes('goodstream')) return 'GoodStream';
   if (url.includes('vimeos')) return 'Vimeos';
   return 'Online';
@@ -381,7 +375,7 @@ export async function extractStreams(tmdbId, mediaType, season, episode) {
 
         const decryptedLink = decryptAES(encryptedLink, aesKey);
         if (decryptedLink && decryptedLink.startsWith('http')) {
-          const fixedUrl = mapDomain(decryptedLink);
+          const fixedUrl = normalizeEmbedUrl(mapDomain(decryptedLink));
 
           let directResult = null;
           const resolver = getEmbedResolver(fixedUrl);
@@ -392,7 +386,9 @@ export async function extractStreams(tmdbId, mediaType, season, episode) {
           const serverLabel = getServerLabel(fixedUrl);
 
           if (directResult && directResult.url) {
-            const quality = directResult.quality || await detectQualityFromM3U8(directResult.url);
+            const quality = (directResult.quality && directResult.quality !== 'Unknown')
+              ? directResult.quality
+              : await detectQualityFromM3U8(directResult.url);
             streams.push({
               name: `Flixlatam Direct (${serverLabel})`,
               title: `${quality || 'HD'} · Latino · ${serverLabel}`,

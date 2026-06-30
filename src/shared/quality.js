@@ -13,7 +13,7 @@ function getQualityMap(url) {
   if (url.includes('goodstream')) return KNOWN_QUALITY.goodstream;
   if (url.includes('cloudwindow-route')) return KNOWN_QUALITY.voe;
   if (url.includes('minochinos') || url.includes('vidhide') || url.includes('dintezuvio') || url.includes('dramiyos')) return KNOWN_QUALITY.vidhide;
-  if (url.includes('premilkyway') || url.includes('hlswish') || url.includes('vibuxer') || url.includes('streamwish')) return KNOWN_QUALITY.streamwish;
+  if (url.includes('premilkyway') || url.includes('hlswish') || url.includes('vibuxer') || url.includes('streamwish') || url.includes('harborviewlearninghub') || url.includes('aurorionagency') || url.includes('centaurus') || url.includes('bysedikamoum') || url.includes('filelions') || url.includes('rapidvideo')) return KNOWN_QUALITY.streamwish;
   return null;
 }
 

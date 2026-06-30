@@ -1,30 +1,9 @@
-/**
- * flixlatam - Built from src/flixlatam/
- * Generated: 2026-06-30T00:19:50.857Z
- */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
-var __defProps = Object.defineProperties;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
 var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getOwnPropSymbols = Object.getOwnPropertySymbols;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __propIsEnum = Object.prototype.propertyIsEnumerable;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __spreadValues = (a, b) => {
-  for (var prop in b || (b = {}))
-    if (__hasOwnProp.call(b, prop))
-      __defNormalProp(a, prop, b[prop]);
-  if (__getOwnPropSymbols)
-    for (var prop of __getOwnPropSymbols(b)) {
-      if (__propIsEnum.call(b, prop))
-        __defNormalProp(a, prop, b[prop]);
-    }
-  return a;
-};
-var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -41,67 +20,43 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
 
 // src/shared/http.js
 var FETCH_TIMEOUT = 15e3;
-function fetchWithTimeout(_0) {
-  return __async(this, arguments, function* (url, options = {}, timeout = FETCH_TIMEOUT) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
+async function fetchWithTimeout(url, options = {}, timeout = FETCH_TIMEOUT) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        ...options.headers
+      },
+      redirect: "follow"
+    });
+    return response;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function fetchText(url, options = {}, timeout = FETCH_TIMEOUT) {
+  const res = await fetchWithTimeout(url, options, timeout);
+  if (!res.ok)
+    throw new Error(`HTTP ${res.status} for ${url}`);
+  return await res.text();
+}
+async function fetchWithRetry(url, options = {}, retries = 2, timeout = FETCH_TIMEOUT) {
+  for (let i = 0; i <= retries; i++) {
     try {
-      const response = yield fetch(url, __spreadProps(__spreadValues({}, options), {
-        signal: controller.signal,
-        headers: __spreadValues({
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }, options.headers),
-        redirect: "follow"
-      }));
-      return response;
-    } finally {
-      clearTimeout(timer);
+      return await fetchText(url, options, timeout);
+    } catch (e) {
+      if (i === retries)
+        throw e;
+      await new Promise((r) => setTimeout(r, 1e3 * (i + 1)));
     }
-  });
-}
-function fetchText(_0) {
-  return __async(this, arguments, function* (url, options = {}, timeout = FETCH_TIMEOUT) {
-    const res = yield fetchWithTimeout(url, options, timeout);
-    if (!res.ok)
-      throw new Error(`HTTP ${res.status} for ${url}`);
-    return yield res.text();
-  });
-}
-function fetchWithRetry(_0) {
-  return __async(this, arguments, function* (url, options = {}, retries = 2, timeout = FETCH_TIMEOUT) {
-    for (let i = 0; i <= retries; i++) {
-      try {
-        return yield fetchText(url, options, timeout);
-      } catch (e) {
-        if (i === retries)
-          throw e;
-        yield new Promise((r) => setTimeout(r, 1e3 * (i + 1)));
-      }
-    }
-  });
+  }
 }
 
 // src/shared/voe.js
@@ -160,65 +115,63 @@ function extractQuality(url) {
   const m = url.match(/[_-](\d{3,4})p/);
   return m ? m[1] + "p" : "Unknown";
 }
-function resolveVoeStream(embedUrl) {
-  return __async(this, null, function* () {
-    try {
-      const html = yield fetchText(embedUrl, {
-        headers: { Referer: embedUrl }
-      });
-      let pageText = html;
-      if (/permanentToken/i.test(pageText)) {
-        const redirectMatch = pageText.match(/window\.location\.href\s*=\s*'([^']+)'/i);
-        if (redirectMatch) {
-          const redirectRes = yield fetchWithTimeout(redirectMatch[1], {
-            headers: { Referer: embedUrl, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
-          });
-          if (redirectRes.ok) {
-            pageText = yield redirectRes.text();
-          }
-        }
-      }
-      const jsonMatch = pageText.match(/json">\s*\[\s*['"]([^'"]+)['"]\s*\]\s*<\/script>\s*<script[^>]*src=['"]([^'"]+)['"]/i);
-      if (jsonMatch) {
-        const encodedStr = jsonMatch[1];
-        const loaderUrl = jsonMatch[2].startsWith("http") ? jsonMatch[2] : new URL(jsonMatch[2], embedUrl).href;
-        const loaderRes = yield fetchWithTimeout(loaderUrl, {
+async function resolveVoeStream(embedUrl) {
+  try {
+    const html = await fetchText(embedUrl, {
+      headers: { Referer: embedUrl }
+    });
+    let pageText = html;
+    if (/permanentToken/i.test(pageText)) {
+      const redirectMatch = pageText.match(/window\.location\.href\s*=\s*'([^']+)'/i);
+      if (redirectMatch) {
+        const redirectRes = await fetchWithTimeout(redirectMatch[1], {
           headers: { Referer: embedUrl, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
         });
-        if (loaderRes.ok) {
-          const loaderText = yield loaderRes.text();
-          const dictMatch = loaderText.match(/(\[(?:'[^']{1,10}'[\s,]*){4,12}\])/i) || loaderText.match(/(\[(?:"[^"]{1,10}"[,\s]*){4,12}\])/i);
-          if (dictMatch) {
-            const dictionary = dictMatch[1].replace(/^\[|\]$/g, "").split("','").map((s) => s.replace(/^'+|'+$/g, "")).map((s) => s.replace(/^"+|"+$/g, ""));
-            const decrypted = voeDecode(encodedStr, dictionary);
-            if (decrypted) {
-              const directUrl = decrypted.source || decrypted.direct_access_url;
-              if (directUrl) {
-                return { url: directUrl, quality: extractQuality(directUrl), headers: { Referer: embedUrl } };
-              }
+        if (redirectRes.ok) {
+          pageText = await redirectRes.text();
+        }
+      }
+    }
+    const jsonMatch = pageText.match(/json">\s*\[\s*['"]([^'"]+)['"]\s*\]\s*<\/script>\s*<script[^>]*src=['"]([^'"]+)['"]/i);
+    if (jsonMatch) {
+      const encodedStr = jsonMatch[1];
+      const loaderUrl = jsonMatch[2].startsWith("http") ? jsonMatch[2] : new URL(jsonMatch[2], embedUrl).href;
+      const loaderRes = await fetchWithTimeout(loaderUrl, {
+        headers: { Referer: embedUrl, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
+      });
+      if (loaderRes.ok) {
+        const loaderText = await loaderRes.text();
+        const dictMatch = loaderText.match(/(\[(?:'[^']{1,10}'[\s,]*){4,12}\])/i) || loaderText.match(/(\[(?:"[^"]{1,10}"[,\s]*){4,12}\])/i);
+        if (dictMatch) {
+          const dictionary = dictMatch[1].replace(/^\[|\]$/g, "").split("','").map((s) => s.replace(/^'+|'+$/g, "")).map((s) => s.replace(/^"+|"+$/g, ""));
+          const decrypted = voeDecode(encodedStr, dictionary);
+          if (decrypted) {
+            const directUrl = decrypted.source || decrypted.direct_access_url;
+            if (directUrl) {
+              return { url: directUrl, quality: extractQuality(directUrl), headers: { Referer: embedUrl } };
             }
           }
         }
       }
-      const urlPatterns = [
-        ...pageText.matchAll(/(?:mp4|hls)'\s*:\s*'([^']+)'/gi),
-        ...pageText.matchAll(/(?:mp4|hls)"\s*:\s*"([^"]+)"/gi)
-      ];
-      for (const m of urlPatterns) {
-        let u = m[1];
-        if (u.startsWith("aHR0")) {
-          try {
-            u = base64Decode(u) || u;
-          } catch (e) {
-          }
-        }
-        return { url: u, quality: extractQuality(u), headers: { Referer: embedUrl } };
-      }
-      return null;
-    } catch (e) {
-      return null;
     }
-  });
+    const urlPatterns = [
+      ...pageText.matchAll(/(?:mp4|hls)'\s*:\s*'([^']+)'/gi),
+      ...pageText.matchAll(/(?:mp4|hls)"\s*:\s*"([^"]+)"/gi)
+    ];
+    for (const m of urlPatterns) {
+      let u = m[1];
+      if (u.startsWith("aHR0")) {
+        try {
+          u = base64Decode(u) || u;
+        } catch (e) {
+        }
+      }
+      return { url: u, quality: extractQuality(u), headers: { Referer: embedUrl } };
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
 }
 
 // src/shared/quality.js
@@ -238,7 +191,7 @@ function getQualityMap(url) {
     return KNOWN_QUALITY.voe;
   if (url.includes("minochinos") || url.includes("vidhide") || url.includes("dintezuvio") || url.includes("dramiyos"))
     return KNOWN_QUALITY.vidhide;
-  if (url.includes("premilkyway") || url.includes("hlswish") || url.includes("vibuxer") || url.includes("streamwish"))
+  if (url.includes("premilkyway") || url.includes("hlswish") || url.includes("vibuxer") || url.includes("streamwish") || url.includes("harborviewlearninghub") || url.includes("aurorionagency") || url.includes("centaurus") || url.includes("bysedikamoum") || url.includes("filelions") || url.includes("rapidvideo"))
     return KNOWN_QUALITY.streamwish;
   return null;
 }
@@ -260,42 +213,40 @@ function guessQualityFromUrl(url) {
   const numMatch = url.match(/[_-](\d{3,4})p/);
   return numMatch ? numMatch[1] + "p" : "Unknown";
 }
-function detectQualityFromM3U8(url) {
-  return __async(this, null, function* () {
-    try {
-      const res = yield fetchWithTimeout(url, {
-        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
-      });
-      if (!res.ok)
-        return guessQualityFromUrl(url);
-      const text = yield res.text();
-      if (!text.includes("#EXT-X-STREAM-INF")) {
-        return guessQualityFromUrl(url);
-      }
-      let maxH = 0, maxW = 0;
-      for (const line of text.split("\n")) {
-        const m = line.match(/RESOLUTION=(\d+)x(\d+)/);
-        if (m) {
-          const h = parseInt(m[2]);
-          if (h > maxH) {
-            maxH = h;
-            maxW = parseInt(m[1]);
-          }
-        }
-      }
-      if (maxH >= 2160)
-        return "4K";
-      if (maxH >= 1080)
-        return "1080p";
-      if (maxH >= 720)
-        return "720p";
-      if (maxH >= 480)
-        return "480p";
-      return maxH > 0 ? `${maxH}p` : guessQualityFromUrl(url);
-    } catch (e) {
+async function detectQualityFromM3U8(url) {
+  try {
+    const res = await fetchWithTimeout(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
+    });
+    if (!res.ok)
+      return guessQualityFromUrl(url);
+    const text = await res.text();
+    if (!text.includes("#EXT-X-STREAM-INF")) {
       return guessQualityFromUrl(url);
     }
-  });
+    let maxH = 0, maxW = 0;
+    for (const line of text.split("\n")) {
+      const m = line.match(/RESOLUTION=(\d+)x(\d+)/);
+      if (m) {
+        const h = parseInt(m[2]);
+        if (h > maxH) {
+          maxH = h;
+          maxW = parseInt(m[1]);
+        }
+      }
+    }
+    if (maxH >= 2160)
+      return "4K";
+    if (maxH >= 1080)
+      return "1080p";
+    if (maxH >= 720)
+      return "720p";
+    if (maxH >= 480)
+      return "480p";
+    return maxH > 0 ? `${maxH}p` : guessQualityFromUrl(url);
+  } catch {
+    return guessQualityFromUrl(url);
+  }
 }
 
 // src/flixlatam/extractor.js
@@ -327,17 +278,15 @@ function normalizeText(text) {
     return "";
   return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
 }
-function getMediaTitle(tmdbId, mediaType) {
-  return __async(this, null, function* () {
-    const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&language=es-MX`;
-    const res = yield fetch(url);
-    if (!res.ok)
-      throw new Error(`Failed to fetch from TMDB: ${res.status}`);
-    const data = yield res.json();
-    const title = mediaType === "movie" ? data.title : data.name;
-    const originalTitle = mediaType === "movie" ? data.original_title : data.original_name;
-    return { title, originalTitle };
-  });
+async function getMediaTitle(tmdbId, mediaType) {
+  const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&language=es-MX`;
+  const res = await fetch(url);
+  if (!res.ok)
+    throw new Error(`Failed to fetch from TMDB: ${res.status}`);
+  const data = await res.json();
+  const title = mediaType === "movie" ? data.title : data.name;
+  const originalTitle = mediaType === "movie" ? data.original_title : data.original_name;
+  return { title, originalTitle };
 }
 function solvePowAsync(challenge, difficulty, salt, maxAttempts = 5e5) {
   return new Promise((resolve, reject) => {
@@ -405,139 +354,114 @@ function unpackPacked(source) {
     return null;
   }
 }
-function resolveHLSWishStream(embedUrl) {
-  return __async(this, null, function* () {
-    try {
-      const mappedUrl = mapDomain(embedUrl);
-      const origin = new URL(mappedUrl).origin;
-      const html = yield fetchWithRetry(mappedUrl, {
-        headers: {
-          Referer: "https://flixlatam.com/",
-          Origin: "https://flixlatam.com",
-          "Accept-Language": "es-MX,es;q=0.9"
+async function resolveHLSWishStream(embedUrl) {
+  try {
+    const mappedUrl = mapDomain(embedUrl);
+    const origin = new URL(mappedUrl).origin;
+    const html = await fetchWithRetry(mappedUrl, {
+      headers: {
+        Referer: "https://flixlatam.com/",
+        Origin: "https://flixlatam.com",
+        "Accept-Language": "es-MX,es;q=0.9"
+      }
+    });
+    const fileMatch = html.match(/file\s*:\s*["']([^"']+)["']/i);
+    if (fileMatch) {
+      let url = fileMatch[1];
+      if (url.startsWith("/"))
+        url = origin + url;
+      if (url.includes("vibuxer.com/stream/")) {
+        try {
+          const redirRes = await fetchWithTimeout(url, {
+            headers: { "User-Agent": "Mozilla/5.0", Referer: origin + "/" }
+          });
+          if (redirRes.url && redirRes.url.includes(".m3u8")) {
+            url = redirRes.url;
+          }
+        } catch (e) {
         }
-      });
-      const fileMatch = html.match(/file\s*:\s*["']([^"']+)["']/i);
-      if (fileMatch) {
-        let url = fileMatch[1];
+      }
+      const quality = await detectQualityFromM3U8(url);
+      return { url, quality, headers: { Referer: origin + "/", "User-Agent": "Mozilla/5.0" } };
+    }
+    const unpacked = unpackPacked(html);
+    if (unpacked) {
+      const hlsMatch = unpacked.match(/"hls[234]"\s*:\s*"([^"]+)"/);
+      if (hlsMatch) {
+        let url = hlsMatch[1];
         if (url.startsWith("/"))
           url = origin + url;
-        if (url.includes("vibuxer.com/stream/")) {
-          try {
-            const redirRes = yield fetchWithTimeout(url, {
-              headers: { "User-Agent": "Mozilla/5.0", Referer: origin + "/" }
-            });
-            if (redirRes.url && redirRes.url.includes(".m3u8")) {
-              url = redirRes.url;
-            }
-          } catch (e) {
-          }
-        }
-        const quality = yield detectQualityFromM3U8(url);
+        const quality = await detectQualityFromM3U8(url);
         return { url, quality, headers: { Referer: origin + "/", "User-Agent": "Mozilla/5.0" } };
       }
-      const unpacked = unpackPacked(html);
-      if (unpacked) {
-        const hlsMatch = unpacked.match(/"hls[234]"\s*:\s*"([^"]+)"/);
-        if (hlsMatch) {
-          let url = hlsMatch[1];
-          if (url.startsWith("/"))
-            url = origin + url;
-          const quality = yield detectQualityFromM3U8(url);
-          return { url, quality, headers: { Referer: origin + "/", "User-Agent": "Mozilla/5.0" } };
-        }
-      }
-      const bareMatch = html.match(/https?:\/\/[^"'\s\\]+\.m3u8[^"'\s\\]*/i);
-      if (bareMatch) {
-        const quality = yield detectQualityFromM3U8(bareMatch[0]);
-        return { url: bareMatch[0], quality, headers: { Referer: origin + "/" } };
-      }
-      return null;
-    } catch (e) {
-      return null;
     }
-  });
+    const bareMatch = html.match(/https?:\/\/[^"'\s\\]+\.m3u8[^"'\s\\]*/i);
+    if (bareMatch) {
+      const quality = await detectQualityFromM3U8(bareMatch[0]);
+      return { url: bareMatch[0], quality, headers: { Referer: origin + "/" } };
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
 }
-function resolveVidHideStream(embedUrl) {
-  return __async(this, null, function* () {
-    try {
-      const html = yield fetchWithRetry(embedUrl, {
-        headers: {
-          Referer: "https://flixlatam.com/",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-      });
-      const unpacked = unpackPacked(html);
-      if (!unpacked)
-        return null;
-      const hlsMatch = unpacked.match(/"hls4"\s*:\s*"([^"]+)"/) || unpacked.match(/"hls2"\s*:\s*"([^"]+)"/);
-      if (!hlsMatch)
-        return null;
-      let url = hlsMatch[1];
-      if (!url.startsWith("http")) {
-        url = new URL(embedUrl).origin + url;
+async function resolveVidHideStream(embedUrl) {
+  try {
+    const html = await fetchWithRetry(embedUrl, {
+      headers: {
+        Referer: "https://flixlatam.com/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
       }
-      const quality = yield detectQualityFromM3U8(url);
-      return { url, quality, headers: { Referer: embedUrl, Origin: new URL(embedUrl).origin } };
-    } catch (e) {
+    });
+    const unpacked = unpackPacked(html);
+    if (!unpacked)
       return null;
+    let hlsMatch = unpacked.match(/"hls[234]"\s*:\s*"([^"]+)"/);
+    if (!hlsMatch) {
+      hlsMatch = unpacked.match(/sources\s*:\s*\[\s*\{[^}]*?file\s*:\s*"([^"]+\.m3u8[^"]*)"/i);
     }
-  });
+    if (!hlsMatch) {
+      hlsMatch = unpacked.match(/https?:\/\/[^"'\s\\]+\.m3u8[^"'\s\\]*/i);
+    }
+    if (!hlsMatch)
+      return null;
+    let url = hlsMatch[1];
+    if (!url.startsWith("http")) {
+      url = new URL(embedUrl).origin + url;
+    }
+    const quality = await detectQualityFromM3U8(url);
+    return { url, quality, headers: { Referer: embedUrl, Origin: new URL(embedUrl).origin } };
+  } catch (e) {
+    return null;
+  }
 }
-function resolveByseStream(embedUrl) {
-  return __async(this, null, function* () {
-    var _a;
-    try {
-      const u = new URL(embedUrl);
-      const code = u.pathname.split("/").pop();
-      const apiUrl = `${u.protocol}//${u.host}/api/video`;
-      const res = yield fetch(apiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "Mozilla/5.0",
-          Referer: embedUrl,
-          Origin: `${u.protocol}//${u.host}`
-        },
-        body: JSON.stringify({ code })
-      });
-      if (res.ok) {
-        const json = yield res.json();
-        if (json.status === "success" && json.data) {
-          const videoUrl = json.data.master || ((_a = json.data.video) == null ? void 0 : _a.master) || json.data.url;
-          if (videoUrl) {
-            const quality = yield detectQualityFromM3U8(videoUrl);
-            return { url: videoUrl, quality, headers: { Referer: embedUrl, Origin: `${u.protocol}//${u.host}` } };
-          }
-        }
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  });
+function normalizeEmbedUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    u.pathname = u.pathname.replace(/\/download(?:\/.*)?$/, "").replace(/\/d\/(.+)/, "/v/$1").replace(/\/embed\/(.+)/, "/v/$1").replace(/\/f\/(.+)/, "/v/$1");
+    return u.toString();
+  } catch {
+    return rawUrl;
+  }
 }
 function getEmbedResolver(url) {
   if (url.includes("voe.sx") || url.includes("cloudwindow-route.com")) {
     return resolveVoeStream;
   }
-  if (url.includes("hlswish") || url.includes("streamwish") || url.includes("vibuxer") || url.includes("strwish") || url.includes("hglink") || url.includes("ghbrisk") || url.includes("premilkyway")) {
+  if (url.includes("hlswish") || url.includes("streamwish") || url.includes("vibuxer") || url.includes("strwish") || url.includes("hglink") || url.includes("ghbrisk") || url.includes("premilkyway") || url.includes("bysedikamoum") || url.includes("bysedi") || url.includes("filelions") || url.includes("rapidvideo")) {
     return resolveHLSWishStream;
   }
-  if (url.includes("vidhide") || url.includes("dintezuvio") || url.includes("minochinos") || url.includes("dramiyos")) {
+  if (url.includes("vidhide") || url.includes("dintezuvio") || url.includes("minochinos") || url.includes("dramiyos") || url.includes("dhcplay") || url.includes("smoothpre") || url.includes("dhtpre") || url.includes("vidspeeder") || url.includes("moorearn") || url.includes("travid") || url.includes("vidhidehub") || url.includes("vidhidevip") || url.includes("vidhidepre") || url.includes("kinoger") || url.includes("movearnpre") || url.includes("peytonepre")) {
     return resolveVidHideStream;
-  }
-  if (url.includes("byse") || url.includes("bysedi") || url.includes("filelions")) {
-    return resolveByseStream;
   }
   return null;
 }
 function getServerLabel(url) {
   if (url.includes("voe.sx") || url.includes("cloudwindow"))
     return "VOE";
-  if (url.includes("streamwish") || url.includes("hlswish") || url.includes("vibuxer") || url.includes("strwish") || url.includes("premilkyway"))
+  if (url.includes("streamwish") || url.includes("hlswish") || url.includes("vibuxer") || url.includes("strwish") || url.includes("premilkyway") || url.includes("bysedikamoum") || url.includes("bysedi") || url.includes("filelions") || url.includes("rapidvideo"))
     return "StreamWish";
-  if (url.includes("vidhide") || url.includes("dintezuvio") || url.includes("minochinos") || url.includes("dramiyos"))
+  if (url.includes("vidhide") || url.includes("dintezuvio") || url.includes("minochinos") || url.includes("dramiyos") || url.includes("dhcplay") || url.includes("smoothpre") || url.includes("dhtpre") || url.includes("vidspeeder") || url.includes("moorearn") || url.includes("travid") || url.includes("vidhidehub") || url.includes("vidhidevip") || url.includes("vidhidepre") || url.includes("kinoger") || url.includes("movearnpre") || url.includes("peytonepre"))
     return "VidHide";
   if (url.includes("goodstream"))
     return "GoodStream";
@@ -545,153 +469,149 @@ function getServerLabel(url) {
     return "Vimeos";
   return "Online";
 }
-function extractStreams(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    try {
-      const { title, originalTitle } = yield getMediaTitle(tmdbId, mediaType);
-      const query = title || originalTitle;
-      if (!query)
-        return [];
-      const searchUrl = `${MAIN_URL}/search?s=${encodeURIComponent(query)}`;
-      const html = yield fetchWithRetry(searchUrl);
-      const $ = import_cheerio_without_node_native.default.load(html);
-      const candidates = [];
-      $("article.item").each((i, el) => {
-        const linkElement = $(el).find(".data h3 a").first();
-        const href = linkElement.attr("href");
-        const name = linkElement.text().trim();
-        if (href)
-          candidates.push({ name, href });
-      });
-      let targetUrl = null;
-      const normalizedQuery = normalizeText(query);
-      const normalizedOriginal = normalizeText(originalTitle);
-      for (const cand of candidates) {
-        const normalizedCand = normalizeText(cand.name);
-        if (normalizedCand.includes(normalizedQuery) || normalizedCand.includes(normalizedOriginal)) {
-          targetUrl = cand.href;
-          break;
+async function extractStreams(tmdbId, mediaType, season, episode) {
+  try {
+    const { title, originalTitle } = await getMediaTitle(tmdbId, mediaType);
+    const query = title || originalTitle;
+    if (!query)
+      return [];
+    const searchUrl = `${MAIN_URL}/search?s=${encodeURIComponent(query)}`;
+    const html = await fetchWithRetry(searchUrl);
+    const $ = import_cheerio_without_node_native.default.load(html);
+    const candidates = [];
+    $("article.item").each((i, el) => {
+      const linkElement = $(el).find(".data h3 a").first();
+      const href = linkElement.attr("href");
+      const name = linkElement.text().trim();
+      if (href)
+        candidates.push({ name, href });
+    });
+    let targetUrl = null;
+    const normalizedQuery = normalizeText(query);
+    const normalizedOriginal = normalizeText(originalTitle);
+    for (const cand of candidates) {
+      const normalizedCand = normalizeText(cand.name);
+      if (normalizedCand.includes(normalizedQuery) || normalizedCand.includes(normalizedOriginal)) {
+        targetUrl = cand.href;
+        break;
+      }
+    }
+    if (!targetUrl && candidates.length > 0) {
+      targetUrl = candidates[0].href;
+    }
+    if (!targetUrl)
+      return [];
+    let pageUrl = targetUrl;
+    if (pageUrl && !pageUrl.startsWith("http")) {
+      pageUrl = MAIN_URL + pageUrl;
+    }
+    if (mediaType === "tv") {
+      const tvHtml = await fetchWithRetry(pageUrl);
+      const tv$ = import_cheerio_without_node_native.default.load(tvHtml);
+      let epUrl = null;
+      tv$("ul.episodios li").each((i, el) => {
+        const epLink = tv$(el).find(".episodiotitle a");
+        const href = epLink.attr("href");
+        const numerando = tv$(el).find(".numerando").text() || "1-1";
+        const parts = numerando.split("-");
+        const s = parseInt(parts[0], 10) || 1;
+        const e = parseInt(parts[1], 10) || 1;
+        if (s === season && e === episode) {
+          epUrl = href;
         }
-      }
-      if (!targetUrl && candidates.length > 0) {
-        targetUrl = candidates[0].href;
-      }
-      if (!targetUrl)
+      });
+      if (!epUrl)
         return [];
-      let pageUrl = targetUrl;
+      pageUrl = epUrl;
       if (pageUrl && !pageUrl.startsWith("http")) {
         pageUrl = MAIN_URL + pageUrl;
       }
-      if (mediaType === "tv") {
-        const tvHtml = yield fetchWithRetry(pageUrl);
-        const tv$ = import_cheerio_without_node_native.default.load(tvHtml);
-        let epUrl = null;
-        tv$("ul.episodios li").each((i, el) => {
-          const epLink = tv$(el).find(".episodiotitle a");
-          const href = epLink.attr("href");
-          const numerando = tv$(el).find(".numerando").text() || "1-1";
-          const parts = numerando.split("-");
-          const s = parseInt(parts[0], 10) || 1;
-          const e = parseInt(parts[1], 10) || 1;
-          if (s === season && e === episode) {
-            epUrl = href;
-          }
-        });
-        if (!epUrl)
-          return [];
-        pageUrl = epUrl;
-        if (pageUrl && !pageUrl.startsWith("http")) {
-          pageUrl = MAIN_URL + pageUrl;
-        }
-      }
-      const playHtml = yield fetchWithRetry(pageUrl);
-      const play$ = import_cheerio_without_node_native.default.load(playHtml);
-      let iframeUrl = play$("div.play iframe").attr("src") || play$('iframe[src*="embed69"]').attr("src") || play$('iframe[src*="/vidurl/"]').attr("src");
-      if (!iframeUrl)
-        return [];
-      if (iframeUrl.startsWith("//")) {
-        iframeUrl = "https:" + iframeUrl;
-      } else if (iframeUrl.startsWith("/")) {
-        iframeUrl = MAIN_URL + iframeUrl;
-      }
-      const embedHtml = yield fetchWithRetry(iframeUrl, {
-        headers: { Referer: pageUrl }
-      });
-      const powChallengeMatch = embedHtml.match(/const\s+POW_CHALLENGE\s*=\s*'([^']+)';/);
-      const powDifficultyMatch = embedHtml.match(/const\s+POW_DIFFICULTY\s*=\s*(\d+);/);
-      const powSaltMatch = embedHtml.match(/const\s+POW_SALT\s*=\s*'([^']+)';/);
-      if (!powChallengeMatch || !powSaltMatch) {
-        return [];
-      }
-      const challenge = powChallengeMatch[1];
-      const difficulty = powDifficultyMatch ? parseInt(powDifficultyMatch[1], 10) : 3;
-      const salt = powSaltMatch[1];
-      let aesKey;
-      try {
-        aesKey = yield solvePowAsync(challenge, difficulty, salt);
-      } catch (e) {
-        return [];
-      }
-      const dataLinkMatch = embedHtml.match(/let\s+dataLink\s*=\s*(\[[\s\S]*?\]);/);
-      if (!dataLinkMatch)
-        return [];
-      const dataList = JSON.parse(dataLinkMatch[1]);
-      const streams = [];
-      for (const entry of dataList) {
-        const allEmbeds = entry.sortedEmbeds || [];
-        const downloadEmbeds = entry.downloadEmbeds || [];
-        for (const item of [...allEmbeds, ...downloadEmbeds]) {
-          const encryptedLink = item.link;
-          if (!encryptedLink)
-            continue;
-          const decryptedLink = decryptAES(encryptedLink, aesKey);
-          if (decryptedLink && decryptedLink.startsWith("http")) {
-            const fixedUrl = mapDomain(decryptedLink);
-            let directResult = null;
-            const resolver = getEmbedResolver(fixedUrl);
-            if (resolver) {
-              directResult = yield resolver(fixedUrl);
-            }
-            const serverLabel = getServerLabel(fixedUrl);
-            if (directResult && directResult.url) {
-              const quality = directResult.quality || (yield detectQualityFromM3U8(directResult.url));
-              streams.push({
-                name: `Flixlatam Direct (${serverLabel})`,
-                title: `${quality || "HD"} \xB7 Latino \xB7 ${serverLabel}`,
-                url: directResult.url,
-                quality: quality || "Unknown",
-                headers: directResult.headers || { Referer: fixedUrl }
-              });
-            } else {
-              streams.push({
-                name: `Flixlatam Embed (${serverLabel})`,
-                title: `Embed \xB7 Latino \xB7 ${serverLabel}`,
-                url: fixedUrl,
-                quality: "Unknown",
-                headers: { Referer: iframeUrl }
-              });
-            }
-          }
-        }
-      }
-      return streams;
+    }
+    const playHtml = await fetchWithRetry(pageUrl);
+    const play$ = import_cheerio_without_node_native.default.load(playHtml);
+    let iframeUrl = play$("div.play iframe").attr("src") || play$('iframe[src*="embed69"]').attr("src") || play$('iframe[src*="/vidurl/"]').attr("src");
+    if (!iframeUrl)
+      return [];
+    if (iframeUrl.startsWith("//")) {
+      iframeUrl = "https:" + iframeUrl;
+    } else if (iframeUrl.startsWith("/")) {
+      iframeUrl = MAIN_URL + iframeUrl;
+    }
+    const embedHtml = await fetchWithRetry(iframeUrl, {
+      headers: { Referer: pageUrl }
+    });
+    const powChallengeMatch = embedHtml.match(/const\s+POW_CHALLENGE\s*=\s*'([^']+)';/);
+    const powDifficultyMatch = embedHtml.match(/const\s+POW_DIFFICULTY\s*=\s*(\d+);/);
+    const powSaltMatch = embedHtml.match(/const\s+POW_SALT\s*=\s*'([^']+)';/);
+    if (!powChallengeMatch || !powSaltMatch) {
+      return [];
+    }
+    const challenge = powChallengeMatch[1];
+    const difficulty = powDifficultyMatch ? parseInt(powDifficultyMatch[1], 10) : 3;
+    const salt = powSaltMatch[1];
+    let aesKey;
+    try {
+      aesKey = await solvePowAsync(challenge, difficulty, salt);
     } catch (e) {
       return [];
     }
-  });
+    const dataLinkMatch = embedHtml.match(/let\s+dataLink\s*=\s*(\[[\s\S]*?\]);/);
+    if (!dataLinkMatch)
+      return [];
+    const dataList = JSON.parse(dataLinkMatch[1]);
+    const streams = [];
+    for (const entry of dataList) {
+      const allEmbeds = entry.sortedEmbeds || [];
+      const downloadEmbeds = entry.downloadEmbeds || [];
+      for (const item of [...allEmbeds, ...downloadEmbeds]) {
+        const encryptedLink = item.link;
+        if (!encryptedLink)
+          continue;
+        const decryptedLink = decryptAES(encryptedLink, aesKey);
+        if (decryptedLink && decryptedLink.startsWith("http")) {
+          const fixedUrl = normalizeEmbedUrl(mapDomain(decryptedLink));
+          let directResult = null;
+          const resolver = getEmbedResolver(fixedUrl);
+          if (resolver) {
+            directResult = await resolver(fixedUrl);
+          }
+          const serverLabel = getServerLabel(fixedUrl);
+          if (directResult && directResult.url) {
+            const quality = directResult.quality && directResult.quality !== "Unknown" ? directResult.quality : await detectQualityFromM3U8(directResult.url);
+            streams.push({
+              name: `Flixlatam Direct (${serverLabel})`,
+              title: `${quality || "HD"} \xB7 Latino \xB7 ${serverLabel}`,
+              url: directResult.url,
+              quality: quality || "Unknown",
+              headers: directResult.headers || { Referer: fixedUrl }
+            });
+          } else {
+            streams.push({
+              name: `Flixlatam Embed (${serverLabel})`,
+              title: `Embed \xB7 Latino \xB7 ${serverLabel}`,
+              url: fixedUrl,
+              quality: "Unknown",
+              headers: { Referer: iframeUrl }
+            });
+          }
+        }
+      }
+    }
+    return streams;
+  } catch (e) {
+    return [];
+  }
 }
 
 // src/flixlatam/index.js
-function getStreams(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    try {
-      console.log(`[Flixlatam] Request: ${mediaType} ${tmdbId} (S${season}E${episode})`);
-      const streams = yield extractStreams(tmdbId, mediaType, season, episode);
-      return streams;
-    } catch (error) {
-      console.error(`[Flixlatam] Error in getStreams: ${error.message}`);
-      return [];
-    }
-  });
+async function getStreams(tmdbId, mediaType, season, episode) {
+  try {
+    console.log(`[Flixlatam] Request: ${mediaType} ${tmdbId} (S${season}E${episode})`);
+    const streams = await extractStreams(tmdbId, mediaType, season, episode);
+    return streams;
+  } catch (error) {
+    console.error(`[Flixlatam] Error in getStreams: ${error.message}`);
+    return [];
+  }
 }
 module.exports = { getStreams };
