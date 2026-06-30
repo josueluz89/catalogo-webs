@@ -1,6 +1,6 @@
 /**
  * flixlatam - Built from src/flixlatam/
- * Generated: 2026-06-30T03:03:52.607Z
+ * Generated: 2026-06-30T03:15:11.117Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -286,9 +286,15 @@ function resolveVoeStream(embedUrl) {
 }
 
 // src/shared/embedResolvers.js
+function getUrlOrigin(url) {
+  if (!url)
+    return "";
+  const match = url.match(/^(https?:\/\/[^\/]+)/);
+  return match ? match[1] : "";
+}
 function unpackPacked(html) {
   try {
-    const pMatch = html.match(/eval\(function\(p,a,c,k,e,[rd]\)\{.*?\}\s*\('([\s\S]*?)',\s*(\d+),\s*(\d+),\s*'([\s\S]*?)'\.split\('\|'\)/);
+    const pMatch = html.match(/eval\(function\(p,a,c,k,e,[premd]\)\{.*?\}\s*\('([\s\S]*?)',\s*(\d+),\s*(\d+),\s*'([\s\S]*?)'\.split\('\|'\)/);
     if (!pMatch)
       return null;
     let [, p, a, c, k] = pMatch;
@@ -314,23 +320,27 @@ function unpackPacked(html) {
 }
 function normalizeVidHideUrl(url) {
   try {
-    const u = new URL(url);
-    if (!u.pathname.includes("/embed/")) {
-      const parts = u.pathname.split("/").filter(Boolean);
-      const code = parts.pop();
-      if (code)
-        u.pathname = `/embed/${code}`;
+    if (!url)
+      return "";
+    let res = url;
+    if (!res.includes("/embed/")) {
+      const match = res.match(/^(https?:\/\/[^\/]+)\/([A-Za-z0-9_-]+)/);
+      if (match) {
+        res = `${match[1]}/embed/${match[2]}`;
+      }
     }
-    return u.toString();
+    return res;
   } catch (e) {
     return url;
   }
 }
 function normalizeEmbedUrl(rawUrl) {
   try {
-    const u = new URL(rawUrl);
-    u.pathname = u.pathname.replace(/\/download(?:\/.*)?$/, "").replace(/\/d\/(.+)/, "/v/$1").replace(/\/embed\/(.+)/, "/v/$1").replace(/\/file\/(.+)/, "/v/$1").replace(/\/f\/(.+)/, "/v/$1");
-    return u.toString();
+    if (!rawUrl)
+      return "";
+    let res = rawUrl;
+    res = res.replace(/\/download(?:\/.*)?$/, "").replace(/\/d\/(.+)/, "/v/$1").replace(/\/embed\/(.+)/, "/v/$1").replace(/\/file\/(.+)/, "/v/$1").replace(/\/f\/(.+)/, "/v/$1");
+    return res;
   } catch (e) {
     return rawUrl;
   }
@@ -354,7 +364,7 @@ function resolveHLSWishStream(embedUrl) {
   return __async(this, null, function* () {
     try {
       const targetUrl = mapDomain(embedUrl).replace("/e/", "/v/");
-      const origin = new URL(targetUrl).origin;
+      const origin = getUrlOrigin(targetUrl);
       const html = yield fetchWithRetry(targetUrl, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -393,7 +403,7 @@ function resolveVidHideProStream(embedUrl) {
   return __async(this, null, function* () {
     try {
       const normalizedUrl = normalizeVidHideUrl(embedUrl);
-      const origin = new URL(normalizedUrl).origin;
+      const origin = getUrlOrigin(normalizedUrl);
       const html = yield fetchWithRetry(normalizedUrl, {
         headers: {
           Referer: "https://embed69.org/",
@@ -452,7 +462,7 @@ function resolveFilemoonStream(embedUrl) {
       if (iframeSrc) {
         let iframeUrl = iframeSrc[1];
         if (!iframeUrl.startsWith("http")) {
-          iframeUrl = new URL(embedUrl).origin + iframeUrl;
+          iframeUrl = getUrlOrigin(embedUrl) + iframeUrl;
         }
         const iframeHtml = yield fetchWithRetry(iframeUrl, {
           headers: __spreadProps(__spreadValues({}, defaultHeaders), { "Accept-Language": "en-US,en;q=0.5", Referer: embedUrl })
@@ -463,9 +473,9 @@ function resolveFilemoonStream(embedUrl) {
           if (videoMatch) {
             let url = videoMatch[1];
             if (!url.startsWith("http"))
-              url = new URL(iframeUrl).origin + url;
+              url = getUrlOrigin(iframeUrl) + url;
             const quality = yield detectQualityFromM3U8(url);
-            return { url, quality, headers: { Referer: new URL(iframeUrl).origin + "/" } };
+            return { url, quality, headers: { Referer: getUrlOrigin(iframeUrl) + "/" } };
           }
         }
         return null;
@@ -476,9 +486,9 @@ function resolveFilemoonStream(embedUrl) {
         if (videoMatch) {
           let url = videoMatch[1];
           if (!url.startsWith("http"))
-            url = new URL(embedUrl).origin + url;
+            url = getUrlOrigin(embedUrl) + url;
           const quality = yield detectQualityFromM3U8(url);
-          return { url, quality, headers: { Referer: new URL(embedUrl).origin + "/" } };
+          return { url, quality, headers: { Referer: getUrlOrigin(embedUrl) + "/" } };
         }
       }
       return null;
@@ -490,7 +500,7 @@ function resolveFilemoonStream(embedUrl) {
 function resolveLulusStream(embedUrl) {
   return __async(this, null, function* () {
     try {
-      const origin = new URL(embedUrl).origin;
+      const origin = getUrlOrigin(embedUrl);
       const filecode = embedUrl.replace(/\/+$/, "").split("/").pop();
       if (!filecode)
         return null;
@@ -529,7 +539,7 @@ function resolveLulusStream(embedUrl) {
 function resolveUqloadStream(embedUrl) {
   return __async(this, null, function* () {
     try {
-      const origin = new URL(embedUrl).origin;
+      const origin = getUrlOrigin(embedUrl);
       const html = yield fetchWithRetry(embedUrl, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0",
