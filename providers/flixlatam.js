@@ -1,6 +1,6 @@
 /**
  * flixlatam - Built from src/flixlatam/
- * Generated: 2026-06-29T23:59:32.192Z
+ * Generated: 2026-06-30T00:02:08.617Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -361,6 +361,16 @@ function extractStreams(tmdbId, mediaType, season, episode) {
                 headers: {
                   "Referer": fixedUrl,
                   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
+              });
+            } else {
+              streams.push({
+                name: `Flixlatam Embed (${item.name || "Server"})`,
+                title: `${title || query} [Latino]`,
+                url: fixedUrl,
+                quality: "720p",
+                headers: {
+                  "Referer": iframeUrl
                 }
               });
             }
