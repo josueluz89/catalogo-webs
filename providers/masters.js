@@ -1,12 +1,10 @@
 /**
  * masters - Built from src/masters/
- * Generated: 2026-06-30T00:19:50.877Z
+ * Generated: 2026-06-30T00:27:03.783Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
-var __defProps = Object.defineProperties;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getOwnPropSymbols = Object.getOwnPropertySymbols;
 var __getProtoOf = Object.getPrototypeOf;
@@ -24,7 +22,6 @@ var __spreadValues = (a, b) => {
     }
   return a;
 };
-var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -62,49 +59,44 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// src/shared/http.js
-var FETCH_TIMEOUT = 15e3;
-function fetchWithTimeout(_0) {
-  return __async(this, arguments, function* (url, options = {}, timeout = FETCH_TIMEOUT) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-    try {
-      const response = yield fetch(url, __spreadProps(__spreadValues({}, options), {
-        signal: controller.signal,
-        headers: __spreadValues({
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }, options.headers),
-        redirect: "follow"
-      }));
-      return response;
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-}
+// src/masters/http.js
+var HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
+};
 function fetchText(_0) {
-  return __async(this, arguments, function* (url, options = {}, timeout = FETCH_TIMEOUT) {
-    const res = yield fetchWithTimeout(url, options, timeout);
-    if (!res.ok)
-      throw new Error(`HTTP ${res.status} for ${url}`);
-    return yield res.text();
-  });
-}
-function fetchWithRetry(_0) {
-  return __async(this, arguments, function* (url, options = {}, retries = 2, timeout = FETCH_TIMEOUT) {
-    for (let i = 0; i <= retries; i++) {
-      try {
-        return yield fetchText(url, options, timeout);
-      } catch (e) {
-        if (i === retries)
-          throw e;
-        yield new Promise((r) => setTimeout(r, 1e3 * (i + 1)));
-      }
+  return __async(this, arguments, function* (url, options = {}) {
+    console.log(`[Masters] Fetching: ${url}`);
+    const response = yield fetch(url, __spreadValues({
+      headers: __spreadValues(__spreadValues({}, HEADERS), options.headers)
+    }, options));
+    if (!response.ok) {
+      throw new Error(`HTTP error ${response.status} for ${url}`);
     }
+    return yield response.text();
   });
 }
 
-// src/shared/voe.js
+// src/masters/extractor.js
+var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
+var TMDB_API_KEY = "1f54bd990f1cdfb230adb312546d765d";
+function rot13(str) {
+  return str.replace(/[A-Za-z]/g, (c) => {
+    return String.fromCharCode(
+      c.charCodeAt(0) + (c.toUpperCase() <= "M" ? 13 : -13)
+    );
+  });
+}
+function replacePatterns(str) {
+  const patterns = ["@$", "^^", "~@", "%?", "*~", "!!", "#&"];
+  let res = str;
+  for (const p of patterns) {
+    res = res.split(p).join("_");
+  }
+  return res;
+}
+function charShift(str, shift) {
+  return str.split("").map((c) => String.fromCharCode(c.charCodeAt(0) - shift)).join("");
+}
 function base64Decode(input) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
   let str = input.replace(/=+$/, "");
@@ -123,184 +115,21 @@ function base64Decode(input) {
   }
   return output;
 }
-function rot13(str) {
-  return str.replace(
-    /[A-Za-z]/g,
-    (c) => String.fromCharCode(c.charCodeAt(0) + (c.toUpperCase() <= "M" ? 13 : -13))
-  );
-}
-function charShift(str, shift) {
-  return str.split("").map((c) => String.fromCharCode(c.charCodeAt(0) - shift)).join("");
-}
-function voeDecode(encoded, dictionary) {
+function decryptVoe(encoded) {
   try {
-    let s = rot13(encoded);
-    if (dictionary) {
-      for (const pat of dictionary) {
-        s = s.split(pat).join("_");
-      }
-    }
-    s = s.split("_").join("");
-    let decoded = base64Decode(s);
-    if (!decoded)
-      return null;
-    decoded = charShift(decoded, 3);
-    decoded = decoded.split("").reverse().join("");
-    decoded = base64Decode(decoded);
-    if (!decoded)
-      return null;
-    return JSON.parse(decoded);
+    const vF = rot13(encoded);
+    const vF2 = replacePatterns(vF);
+    const vF3 = vF2.split("_").join("");
+    const vF4 = base64Decode(vF3);
+    const vF5 = charShift(vF4, 3);
+    const vF6 = vF5.split("").reverse().join("");
+    const vAtob = base64Decode(vF6);
+    return JSON.parse(vAtob);
   } catch (e) {
+    console.log(`[Masters] Voe decryption failed: ${e.message}`);
     return null;
   }
 }
-function extractQuality(url) {
-  if (!url)
-    return "Unknown";
-  const m = url.match(/[_-](\d{3,4})p/);
-  return m ? m[1] + "p" : "Unknown";
-}
-function resolveVoeStream(embedUrl) {
-  return __async(this, null, function* () {
-    try {
-      const html = yield fetchText(embedUrl, {
-        headers: { Referer: embedUrl }
-      });
-      let pageText = html;
-      if (/permanentToken/i.test(pageText)) {
-        const redirectMatch = pageText.match(/window\.location\.href\s*=\s*'([^']+)'/i);
-        if (redirectMatch) {
-          const redirectRes = yield fetchWithTimeout(redirectMatch[1], {
-            headers: { Referer: embedUrl, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
-          });
-          if (redirectRes.ok) {
-            pageText = yield redirectRes.text();
-          }
-        }
-      }
-      const jsonMatch = pageText.match(/json">\s*\[\s*['"]([^'"]+)['"]\s*\]\s*<\/script>\s*<script[^>]*src=['"]([^'"]+)['"]/i);
-      if (jsonMatch) {
-        const encodedStr = jsonMatch[1];
-        const loaderUrl = jsonMatch[2].startsWith("http") ? jsonMatch[2] : new URL(jsonMatch[2], embedUrl).href;
-        const loaderRes = yield fetchWithTimeout(loaderUrl, {
-          headers: { Referer: embedUrl, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
-        });
-        if (loaderRes.ok) {
-          const loaderText = yield loaderRes.text();
-          const dictMatch = loaderText.match(/(\[(?:'[^']{1,10}'[\s,]*){4,12}\])/i) || loaderText.match(/(\[(?:"[^"]{1,10}"[,\s]*){4,12}\])/i);
-          if (dictMatch) {
-            const dictionary = dictMatch[1].replace(/^\[|\]$/g, "").split("','").map((s) => s.replace(/^'+|'+$/g, "")).map((s) => s.replace(/^"+|"+$/g, ""));
-            const decrypted = voeDecode(encodedStr, dictionary);
-            if (decrypted) {
-              const directUrl = decrypted.source || decrypted.direct_access_url;
-              if (directUrl) {
-                return { url: directUrl, quality: extractQuality(directUrl), headers: { Referer: embedUrl } };
-              }
-            }
-          }
-        }
-      }
-      const urlPatterns = [
-        ...pageText.matchAll(/(?:mp4|hls)'\s*:\s*'([^']+)'/gi),
-        ...pageText.matchAll(/(?:mp4|hls)"\s*:\s*"([^"]+)"/gi)
-      ];
-      for (const m of urlPatterns) {
-        let u = m[1];
-        if (u.startsWith("aHR0")) {
-          try {
-            u = base64Decode(u) || u;
-          } catch (e) {
-          }
-        }
-        return { url: u, quality: extractQuality(u), headers: { Referer: embedUrl } };
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  });
-}
-
-// src/shared/quality.js
-var KNOWN_QUALITY = {
-  vimeos: { h: "720p", n: "480p" },
-  goodstream: { x: "1080p", h: "720p", n: "480p", l: "360p" },
-  vidhide: { n: "720p", l: "480p" },
-  streamwish: { x: "1080p", h: "1080p", n: "720p", l: "480p" },
-  voe: { n: "720p", l: "360p" }
-};
-function getQualityMap(url) {
-  if (url.includes("vimeos"))
-    return KNOWN_QUALITY.vimeos;
-  if (url.includes("goodstream"))
-    return KNOWN_QUALITY.goodstream;
-  if (url.includes("cloudwindow-route"))
-    return KNOWN_QUALITY.voe;
-  if (url.includes("minochinos") || url.includes("vidhide") || url.includes("dintezuvio") || url.includes("dramiyos"))
-    return KNOWN_QUALITY.vidhide;
-  if (url.includes("premilkyway") || url.includes("hlswish") || url.includes("vibuxer") || url.includes("streamwish"))
-    return KNOWN_QUALITY.streamwish;
-  return null;
-}
-function guessQualityFromUrl(url) {
-  if (!url)
-    return "Unknown";
-  const qmap = getQualityMap(url);
-  if (qmap) {
-    const m = url.match(/_,([a-z,]+),\.urlset/);
-    if (m) {
-      const labels = m[1].split(",").filter(Boolean);
-      const order = ["x", "o", "h", "n", "l"];
-      for (const key of order) {
-        if (labels.includes(key) && qmap[key])
-          return qmap[key];
-      }
-    }
-  }
-  const numMatch = url.match(/[_-](\d{3,4})p/);
-  return numMatch ? numMatch[1] + "p" : "Unknown";
-}
-function detectQualityFromM3U8(url) {
-  return __async(this, null, function* () {
-    try {
-      const res = yield fetchWithTimeout(url, {
-        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
-      });
-      if (!res.ok)
-        return guessQualityFromUrl(url);
-      const text = yield res.text();
-      if (!text.includes("#EXT-X-STREAM-INF")) {
-        return guessQualityFromUrl(url);
-      }
-      let maxH = 0, maxW = 0;
-      for (const line of text.split("\n")) {
-        const m = line.match(/RESOLUTION=(\d+)x(\d+)/);
-        if (m) {
-          const h = parseInt(m[2]);
-          if (h > maxH) {
-            maxH = h;
-            maxW = parseInt(m[1]);
-          }
-        }
-      }
-      if (maxH >= 2160)
-        return "4K";
-      if (maxH >= 1080)
-        return "1080p";
-      if (maxH >= 720)
-        return "720p";
-      if (maxH >= 480)
-        return "480p";
-      return maxH > 0 ? `${maxH}p` : guessQualityFromUrl(url);
-    } catch (e) {
-      return guessQualityFromUrl(url);
-    }
-  });
-}
-
-// src/masters/extractor.js
-var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
-var TMDB_API_KEY = "1f54bd990f1cdfb230adb312546d765d";
 function normalizeText(text) {
   if (!text)
     return "";
@@ -309,6 +138,7 @@ function normalizeText(text) {
 function getMediaTitle(tmdbId, mediaType) {
   return __async(this, null, function* () {
     const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&language=es-MX`;
+    console.log(`[Masters] Fetching title from TMDB: ${url}`);
     const res = yield fetch(url);
     if (!res.ok) {
       throw new Error(`Failed to fetch from TMDB: ${res.status}`);
@@ -328,7 +158,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       if (!query)
         return [];
       const searchUrl = `https://ww3.gnulahd.nu/?s=${encodeURIComponent(query)}`;
-      const html = yield fetchWithRetry(searchUrl);
+      const html = yield fetchText(searchUrl);
       const $ = import_cheerio_without_node_native.default.load(html);
       const candidates = [];
       $("a").each((i, el) => {
@@ -352,11 +182,13 @@ function extractStreams(tmdbId, mediaType, season, episode) {
         targetUrl = candidates[0].href;
       }
       if (!targetUrl) {
+        console.log("[Masters] No media page found on GnulaHD");
         return [];
       }
       let pageUrl = targetUrl;
       if (mediaType === "tv") {
-        const tvHtml = yield fetchWithRetry(pageUrl);
+        console.log(`[Masters] Fetching TV series page to find episode S${season}E${episode}: ${pageUrl}`);
+        const tvHtml = yield fetchText(pageUrl);
         const tv$ = import_cheerio_without_node_native.default.load(tvHtml);
         let epUrl = null;
         const epPattern1 = `-${season}x${episode < 10 ? "0" + episode : episode}`;
@@ -368,11 +200,13 @@ function extractStreams(tmdbId, mediaType, season, episode) {
           }
         });
         if (!epUrl) {
+          console.log(`[Masters] Could not find episode link for S${season}E${episode}`);
           return [];
         }
         pageUrl = epUrl;
       }
-      const playHtml = yield fetchWithRetry(pageUrl);
+      console.log(`[Masters] Fetching player page: ${pageUrl}`);
+      const playHtml = yield fetchText(pageUrl);
       let dataStr = null;
       const gdMatch = playHtml.match(/var\s+_gd\s*=\s*(\[[\s\S]*?\])\s*;/);
       const epLangsMatch = playHtml.match(/var\s+_gnpv_ep_langs\s*=\s*(\[[\s\S]*?\])\s*;/);
@@ -382,6 +216,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
         dataStr = epLangsMatch[1];
       }
       if (!dataStr) {
+        console.log("[Masters] No video servers found in script tags");
         return [];
       }
       let resolvePath = null;
@@ -393,101 +228,92 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       }
       const languages = JSON.parse(dataStr);
       const streams = [];
-      const langPriority = ["latino", "subtitulado", "castellano", "espanol", "mx"];
-      const matchedLangs = [];
       for (const lang of languages) {
         const langLabel = lang.label || "Latino";
         const normalizedLabel = langLabel.toLowerCase();
-        for (const prefix of langPriority) {
-          if (normalizedLabel.includes(prefix)) {
-            matchedLangs.push(lang);
-            break;
-          }
-        }
-      }
-      const usedLangs = matchedLangs.length > 0 ? matchedLangs : languages;
-      for (const lang of usedLangs) {
-        const langLabel = lang.label || "Latino";
-        let labelShort = "Latino";
-        const nl = langLabel.toLowerCase();
-        if (nl.includes("subtitulado") || nl.includes("sub"))
-          labelShort = "Sub";
-        else if (nl.includes("castellano") || nl.includes("espanol"))
-          labelShort = "Esp";
-        for (const srv of lang.servers || []) {
-          let cleanSrc = (srv.src || "").replace(/\\/g, "");
-          if (!cleanSrc)
-            continue;
-          if (cleanSrc.startsWith("//")) {
-            cleanSrc = "https:" + cleanSrc;
-          }
-          if ((cleanSrc.includes("they.tube") || cleanSrc.includes("the.tube")) && resolvePath && authParam) {
-            try {
-              const codeMatch = cleanSrc.match(/the(?:y)?\.tube\/(?:e\/)?([A-Za-z0-9_-]+?)(?:\.html)?(?:[?#]|$)/i);
-              if (codeMatch) {
-                const code = codeMatch[1];
-                const resolveUrl = `https://ww3.gnulahd.nu${resolvePath}${encodeURIComponent(code)}${authParam}`;
-                const resolveRes = yield fetch(resolveUrl, {
-                  headers: {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
-                    "Referer": pageUrl
-                  }
-                });
-                if (resolveRes.ok) {
-                  const resolveData = yield resolveRes.json();
-                  if (resolveData && resolveData.master) {
-                    const quality = yield detectQualityFromM3U8(resolveData.master);
-                    streams.push({
-                      name: `GnulaHD Direct (they.tube)`,
-                      title: `${quality || "HD"} \xB7 ${labelShort}`,
-                      url: resolveData.master,
-                      quality: quality || "1080p",
-                      headers: {
-                        Referer: "https://ww3.gnulahd.nu/",
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
-                      }
-                    });
-                  }
-                }
-              }
-            } catch (e) {
-            }
-          }
-          if (cleanSrc.includes("voe.sx")) {
-            const result = yield resolveVoeStream(cleanSrc);
-            if (result) {
-              const quality = yield detectQualityFromM3U8(result.url);
-              streams.push({
-                name: `GnulaHD Direct (voe.sx)`,
-                title: `${quality || result.quality || "HD"} \xB7 ${labelShort}`,
-                url: result.url,
-                quality: quality || result.quality || "720p",
-                headers: { Referer: cleanSrc, Origin: "https://voe.sx/" }
-              });
-            }
-          }
-        }
-      }
-      if (streams.length === 0) {
-        for (const lang of languages) {
+        if (normalizedLabel.includes("latino")) {
           for (const srv of lang.servers || []) {
             let cleanSrc = (srv.src || "").replace(/\\/g, "");
             if (!cleanSrc)
               continue;
-            if (cleanSrc.startsWith("//"))
+            if (cleanSrc.startsWith("//")) {
               cleanSrc = "https:" + cleanSrc;
-            streams.push({
-              name: `GnulaHD Embed (${srv.title || "server"})`,
-              title: `Embed \xB7 ${lang.label || "Latino"}`,
-              url: cleanSrc,
-              quality: "Unknown",
-              headers: { Referer: "https://ww3.gnulahd.nu/" }
-            });
+            }
+            if ((cleanSrc.includes("they.tube") || cleanSrc.includes("the.tube")) && resolvePath && authParam) {
+              try {
+                const codeMatch = cleanSrc.match(/the(?:y)?\.tube\/(?:e\/)?([A-Za-z0-9_-]+?)(?:\.html)?(?:[?#]|$)/i);
+                if (codeMatch) {
+                  const code = codeMatch[1];
+                  const resolveUrl = `https://ww3.gnulahd.nu${resolvePath}${encodeURIComponent(code)}${authParam}`;
+                  console.log(`[Masters] Resolving they.tube link: ${resolveUrl}`);
+                  const resolveRes = yield fetch(resolveUrl, {
+                    headers: {
+                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+                      "Referer": pageUrl
+                    }
+                  });
+                  if (resolveRes.ok) {
+                    const resolveData = yield resolveRes.json();
+                    if (resolveData && resolveData.master) {
+                      streams.push({
+                        name: `GnulaHD Direct (${srv.title || "they.tube"})`,
+                        title: `${title || query} [${langLabel}]`,
+                        url: resolveData.master,
+                        quality: "1080p",
+                        headers: {
+                          "Referer": "https://ww3.gnulahd.nu/",
+                          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
+                        }
+                      });
+                    }
+                  }
+                }
+              } catch (e) {
+                console.log(`[Masters] Failed to resolve they.tube: ${e.message}`);
+              }
+            }
+            if (cleanSrc.includes("voe.sx")) {
+              try {
+                console.log(`[Masters] Resolving voe.sx link: ${cleanSrc}`);
+                const voeHtml = yield fetchText(cleanSrc);
+                const voe$ = import_cheerio_without_node_native.default.load(voeHtml);
+                let encodedVoe = null;
+                voe$("script").each((i, el) => {
+                  const type = voe$(el).attr("type");
+                  if (type === "application/json") {
+                    const text = voe$(el).html().trim();
+                    const m = text.match(/\[\s*"([^"]+)"\s*\]/);
+                    if (m) {
+                      encodedVoe = m[1];
+                    }
+                  }
+                });
+                if (encodedVoe) {
+                  const decrypted = decryptVoe(encodedVoe);
+                  const directUrl = decrypted ? decrypted.source || decrypted.direct_access_url : null;
+                  if (directUrl) {
+                    streams.push({
+                      name: `GnulaHD Direct (${srv.title || "voe.sx"})`,
+                      title: `${title || query} [${langLabel}]`,
+                      url: directUrl,
+                      quality: "720p",
+                      headers: {
+                        "Referer": cleanSrc,
+                        "Origin": "https://voe.sx/"
+                      }
+                    });
+                  }
+                }
+              } catch (e) {
+                console.log(`[Masters] Failed to resolve voe.sx: ${e.message}`);
+              }
+            }
           }
         }
       }
       return streams;
     } catch (err) {
+      console.error(`[Masters] Error in extractor: ${err.message}`);
       return [];
     }
   });
