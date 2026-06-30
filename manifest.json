@@ -24,69 +24,6 @@
       ]
     },
     {
-      "id": "doramaslatinox",
-      "name": "DoramasLatinoX",
-      "description": "Scraper de DoramasLatinoX con doramas y series asiáticas dobladas al Español Latino.",
-      "version": "1.0.0",
-      "author": "Masters",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/doramaslatinox.js",
-      "enabled": true,
-      "formats": [
-        "mp4",
-        "m3u8"
-      ],
-      "logo": "https://www.google.com/s2/favicons?domain=doramaslatinox.com&sz=128",
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
-      "id": "animeytx",
-      "name": "AnimeYTX",
-      "description": "Scraper de AnimeYTX con animes en audio Latino y Subtitulado.",
-      "version": "1.0.0",
-      "author": "Masters",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/animeytx.js",
-      "enabled": true,
-      "formats": [
-        "mp4",
-        "m3u8"
-      ],
-      "logo": "https://www.google.com/s2/favicons?domain=animeytx.xyz&sz=128",
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
-      "id": "latanime",
-      "name": "Latanime",
-      "description": "Scraper de Latanime con animes en Español Latino de alta calidad.",
-      "version": "1.0.0",
-      "author": "Masters",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/latanime.js",
-      "enabled": true,
-      "formats": [
-        "mp4",
-        "m3u8"
-      ],
-      "logo": "https://www.google.com/s2/favicons?domain=latanime.org&sz=128",
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
       "id": "flixlatam",
       "name": "FlixLatam",
       "description": "Scraper de FlixLatam con películas y series en Español Latino.",
@@ -103,58 +40,6 @@
         "m3u8"
       ],
       "logo": "https://www.google.com/s2/favicons?domain=flixlatam.com&sz=128",
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
-      "id": "animeav",
-      "name": "AnimeAV",
-      "description": "Scraper de AnimeAV con amplio catálogo de anime doblado y subtitulado.",
-      "version": "1.0.0",
-      "author": "Masters",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/animeav.js",
-      "enabled": true,
-      "formats": [
-        "mp4",
-        "m3u8"
-      ],
-      "logo": "https://www.google.com/s2/favicons?domain=animeav.com&sz=128",
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
-      "id": "cinecalidad",
-      "name": "CineCalidad",
-      "description": "Películas en Latino desde CineCalidad. Vimeos, VOE, StreamWish.",
-      "version": "2.0.0",
-      "author": "KennethJYS",
-      "supportedTypes": [
-        "movie"
-      ],
-      "filename": "providers/cinecalidad.js",
-      "enabled": true,
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
-      "id": "embed69",
-      "name": "Embed69",
-      "description": "Streams en Latino/Español/Subtitulado desde Embed69. StreamWish, VOE, VidHide.",
-      "version": "2.0.0",
-      "author": "KennethJYS",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/embed69.js",
-      "enabled": true,
       "contentLanguage": [
         "es"
       ]
