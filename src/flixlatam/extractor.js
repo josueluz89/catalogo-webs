@@ -8,13 +8,9 @@ const TMDB_API_KEY = '1f54bd990f1cdfb230adb312546d765d';
 const MAIN_URL = 'https://flixlatam.com';
 
 const DOMAIN_MAP = {
-  'dintezuvio.com': 'vidhide.com',
   'hglink.to': 'vibuxer.com',
-  'minochinos.com': 'vidhide.com',
   'ghbrisk.com': 'vibuxer.com',
-  'cloudwindow-route.com': 'voe.sx',
   'premilkyway.com': 'streamwish.to',
-  'dramiyos.com': 'vidhide.com',
 };
 
 function mapDomain(url) {
@@ -118,10 +114,9 @@ function unpackPacked(source) {
 
 async function resolveHLSWishStream(embedUrl) {
   try {
-    const mappedUrl = mapDomain(embedUrl);
-    const origin = new URL(mappedUrl).origin;
+    const origin = new URL(embedUrl).origin;
 
-    const html = await fetchWithRetry(mappedUrl, {
+    const html = await fetchWithRetry(embedUrl, {
       headers: {
         Referer: 'https://flixlatam.com/',
         Origin: 'https://flixlatam.com',
@@ -173,33 +168,187 @@ async function resolveHLSWishStream(embedUrl) {
   }
 }
 
-async function resolveVidHideStream(embedUrl) {
+function normalizeVidHideUrl(rawUrl) {
   try {
+    const u = new URL(rawUrl);
+    u.pathname = u.pathname
+      .replace(/\/download(?:\/.*)?$/, '')
+      .replace(/\/d\/(.+)/, '/v/$1')
+      .replace(/\/file\/(.+)/, '/v/$1')
+      .replace(/\/f\/(.+)/, '/v/$1');
+    return u.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+async function resolveVidHideProStream(embedUrl) {
+  try {
+    const normalizedUrl = normalizeVidHideUrl(embedUrl);
+    const origin = new URL(normalizedUrl).origin;
+
+    const html = await fetchWithRetry(normalizedUrl, {
+      headers: {
+        Referer: origin + '/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'cross-site',
+      },
+    });
+
+    let script = null;
+
+    const packed = unpackPacked(html);
+    if (packed) {
+      let data = packed;
+      if (data.includes('var links')) {
+        data = data.substring(data.indexOf('var links'));
+      }
+      script = data;
+    }
+
+    if (!script) {
+      const srcMatch = html.match(/<script[^>]*>([\s\S]*?sources:[\s\S]*?)<\/script>/i);
+      if (srcMatch) {
+        script = srcMatch[1];
+      }
+    }
+
+    if (!script) return null;
+
+    const m3u8Regex = /:\s*"([^"]*\.m3u8[^"]*)"/i;
+    const m3u8Match = script.match(m3u8Regex);
+    if (!m3u8Match) return null;
+
+    let url = m3u8Match[1];
+    if (url.startsWith('/')) url = origin + url;
+    if (!url.startsWith('http')) url = origin + '/' + url;
+
+    const quality = await detectQualityFromM3U8(url);
+    return { url, quality, headers: { Referer: origin + '/', Origin: origin } };
+  } catch (e) {
+    return null;
+  }
+}
+
+async function resolveFilemoonStream(embedUrl) {
+  try {
+    const defaultHeaders = {
+      'Referer': embedUrl,
+      'Sec-Fetch-Dest': 'iframe',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'cross-site',
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:137.0) Gecko/20100101 Firefox/137.0',
+    };
+
+    const initialResponse = await fetchWithRetry(embedUrl, {
+      headers: { ...defaultHeaders, Referer: 'https://flixlatam.com/' },
+    });
+
+    const iframeSrc = initialResponse.match(/<iframe[^>]*src=["']([^"']+)["']/i);
+    if (iframeSrc) {
+      let iframeUrl = iframeSrc[1];
+      if (!iframeUrl.startsWith('http')) {
+        iframeUrl = new URL(embedUrl).origin + iframeUrl;
+      }
+      const iframeHtml = await fetchWithRetry(iframeUrl, {
+        headers: { ...defaultHeaders, 'Accept-Language': 'en-US,en;q=0.5', Referer: embedUrl },
+      });
+      const unpacked = unpackPacked(iframeHtml);
+      if (unpacked) {
+        const videoMatch = unpacked.match(/sources:\s*\[\s*\{\s*file\s*:\s*"([^"]+)"/i);
+        if (videoMatch) {
+          let url = videoMatch[1];
+          if (!url.startsWith('http')) url = new URL(iframeUrl).origin + url;
+          const quality = await detectQualityFromM3U8(url);
+          return { url, quality, headers: { Referer: new URL(iframeUrl).origin + '/' } };
+        }
+      }
+      return null;
+    }
+
+    const unpacked = unpackPacked(initialResponse);
+    if (unpacked) {
+      const videoMatch = unpacked.match(/sources:\s*\[\s*\{\s*file\s*:\s*"([^"]+)"/i);
+      if (videoMatch) {
+        let url = videoMatch[1];
+        if (!url.startsWith('http')) url = new URL(embedUrl).origin + url;
+        const quality = await detectQualityFromM3U8(url);
+        return { url, quality, headers: { Referer: new URL(embedUrl).origin + '/' } };
+      }
+    }
+
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function resolveLulusStream(embedUrl) {
+  try {
+    const origin = new URL(embedUrl).origin;
+    const filecode = embedUrl.replace(/\/+$/, '').split('/').pop();
+    if (!filecode) return null;
+
+    const res = await fetch(origin + '/dl', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0',
+        Referer: origin,
+      },
+      body: new URLSearchParams({
+        op: 'embed',
+        file_code: filecode,
+        auto: '1',
+        referer: embedUrl,
+      }),
+    });
+
+    if (!res.ok) return null;
+    const html = await res.text();
+    const scriptMatch = html.match(/<script[^>]*>([\s\S]*?vplayer[\s\S]*?)<\/script>/i);
+    if (!scriptMatch) return null;
+    const fileMatch = scriptMatch[1].match(/file\s*:\s*"([^"]+)"/);
+    if (!fileMatch) return null;
+
+    let url = fileMatch[1];
+    if (url.startsWith('/')) url = origin + url;
+    return { url, quality: '1080p', headers: { Referer: origin + '/' } };
+  } catch (e) {
+    return null;
+  }
+}
+
+async function resolveUqloadStream(embedUrl) {
+  try {
+    const origin = new URL(embedUrl).origin;
     const html = await fetchWithRetry(embedUrl, {
       headers: {
-        Referer: 'https://flixlatam.com/',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Upgrade-Insecure-Requests': '1',
+        Referer: origin + '/',
       },
     });
 
     const unpacked = unpackPacked(html);
     if (!unpacked) return null;
 
-    let hlsMatch = unpacked.match(/"hls[234]"\s*:\s*"([^"]+)"/);
-    if (!hlsMatch) {
-      hlsMatch = unpacked.match(/sources\s*:\s*\[\s*\{[^}]*?file\s*:\s*"([^"]+\.m3u8[^"]*)"/i);
+    const m3u8Match = unpacked.match(/https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/i);
+    if (m3u8Match) {
+      const quality = await detectQualityFromM3U8(m3u8Match[0]);
+      return { url: m3u8Match[0], quality, headers: { Referer: origin + '/', Origin: origin } };
     }
-    if (!hlsMatch) {
-      hlsMatch = unpacked.match(/https?:\/\/[^"'\s\\]+\.m3u8[^"'\s\\]*/i);
-    }
-    if (!hlsMatch) return null;
 
-    let url = hlsMatch[1];
-    if (!url.startsWith('http')) {
-      url = new URL(embedUrl).origin + url;
+    const mp4Match = unpacked.match(/https?:\/\/[^\s"'<>\\]+\.mp4[^\s"'<>\\]*/i);
+    if (mp4Match) {
+      return { url: mp4Match[0], quality: '1080p', headers: { Referer: origin + '/', Origin: origin } };
     }
-    const quality = await detectQualityFromM3U8(url);
-    return { url, quality, headers: { Referer: embedUrl, Origin: new URL(embedUrl).origin } };
+
+    return null;
   } catch (e) {
     return null;
   }
@@ -212,6 +361,7 @@ function normalizeEmbedUrl(rawUrl) {
       .replace(/\/download(?:\/.*)?$/, '')
       .replace(/\/d\/(.+)/, '/v/$1')
       .replace(/\/embed\/(.+)/, '/v/$1')
+      .replace(/\/file\/(.+)/, '/v/$1')
       .replace(/\/f\/(.+)/, '/v/$1');
     return u.toString();
   } catch {
@@ -225,8 +375,7 @@ function getEmbedResolver(url) {
   }
   if (url.includes('hlswish') || url.includes('streamwish') || url.includes('vibuxer') ||
       url.includes('strwish') || url.includes('hglink') || url.includes('ghbrisk') ||
-      url.includes('premilkyway') || url.includes('bysedikamoum') || url.includes('bysedi') ||
-      url.includes('filelions') || url.includes('rapidvideo')) {
+      url.includes('premilkyway')) {
     return resolveHLSWishStream;
   }
   if (url.includes('vidhide') || url.includes('dintezuvio') || url.includes('minochinos') ||
@@ -234,8 +383,18 @@ function getEmbedResolver(url) {
       url.includes('dhtpre') || url.includes('vidspeeder') || url.includes('moorearn') ||
       url.includes('travid') || url.includes('vidhidehub') || url.includes('vidhidevip') ||
       url.includes('vidhidepre') || url.includes('kinoger') || url.includes('movearnpre') ||
-      url.includes('peytonepre')) {
-    return resolveVidHideStream;
+      url.includes('peytonepre') || url.includes('filelions')) {
+    return resolveVidHideProStream;
+  }
+  if (url.includes('bysedikamoum') || url.includes('bysedi') || url.includes('filemoon') ||
+      url.includes('rapidvideo')) {
+    return resolveFilemoonStream;
+  }
+  if (url.includes('luluvid') || url.includes('lulus') || url.includes('lulu')) {
+    return resolveLulusStream;
+  }
+  if (url.includes('uqload')) {
+    return resolveUqloadStream;
   }
   return null;
 }
@@ -243,14 +402,17 @@ function getEmbedResolver(url) {
 function getServerLabel(url) {
   if (url.includes('voe.sx') || url.includes('cloudwindow')) return 'VOE';
   if (url.includes('streamwish') || url.includes('hlswish') || url.includes('vibuxer') ||
-      url.includes('strwish') || url.includes('premilkyway') || url.includes('bysedikamoum') ||
-      url.includes('bysedi') || url.includes('filelions') || url.includes('rapidvideo')) return 'StreamWish';
+      url.includes('strwish') || url.includes('premilkyway')) return 'StreamWish';
   if (url.includes('vidhide') || url.includes('dintezuvio') || url.includes('minochinos') ||
       url.includes('dramiyos') || url.includes('dhcplay') || url.includes('smoothpre') ||
       url.includes('dhtpre') || url.includes('vidspeeder') || url.includes('moorearn') ||
       url.includes('travid') || url.includes('vidhidehub') || url.includes('vidhidevip') ||
       url.includes('vidhidepre') || url.includes('kinoger') || url.includes('movearnpre') ||
-      url.includes('peytonepre')) return 'VidHide';
+      url.includes('peytonepre') || url.includes('filelions')) return 'VidHide';
+  if (url.includes('bysedikamoum') || url.includes('bysedi') || url.includes('filemoon') ||
+      url.includes('rapidvideo')) return 'FileMoon';
+  if (url.includes('luluvid') || url.includes('lulus')) return 'Lulu';
+  if (url.includes('uqload')) return 'Uqload';
   if (url.includes('goodstream')) return 'GoodStream';
   if (url.includes('vimeos')) return 'Vimeos';
   return 'Online';

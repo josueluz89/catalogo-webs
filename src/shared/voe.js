@@ -27,14 +27,19 @@ function charShift(str, shift) {
   return str.split('').map(c => String.fromCharCode(c.charCodeAt(0) - shift)).join('');
 }
 
-function voeDecode(encoded, dictionary) {
+function replacePatterns(str) {
+  const patterns = ['@$', '^^', '~@', '%?', '*~', '!!', '#&'];
+  let res = str;
+  for (const p of patterns) {
+    res = res.split(p).join('_');
+  }
+  return res;
+}
+
+function decryptVoe(encoded) {
   try {
     let s = rot13(encoded);
-    if (dictionary) {
-      for (const pat of dictionary) {
-        s = s.split(pat).join('_');
-      }
-    }
+    s = replacePatterns(s);
     s = s.split('_').join('');
     let decoded = base64Decode(s);
     if (!decoded) return null;
@@ -57,7 +62,10 @@ function extractQuality(url) {
 export async function resolveVoeStream(embedUrl) {
   try {
     const html = await fetchText(embedUrl, {
-      headers: { Referer: embedUrl },
+      headers: {
+        Referer: embedUrl,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
     });
 
     let pageText = html;
@@ -75,48 +83,32 @@ export async function resolveVoeStream(embedUrl) {
       }
     }
 
-    // Find json script + loader
-    const jsonMatch = pageText.match(/json">\s*\[\s*['"]([^'"]+)['"]\s*\]\s*<\/script>\s*<script[^>]*src=['"]([^'"]+)['"]/i);
-    if (jsonMatch) {
-      const encodedStr = jsonMatch[1];
-      const loaderUrl = jsonMatch[2].startsWith('http') ? jsonMatch[2] : new URL(jsonMatch[2], embedUrl).href;
-
-      const loaderRes = await fetchWithTimeout(loaderUrl, {
-        headers: { Referer: embedUrl, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      });
-      if (loaderRes.ok) {
-        const loaderText = await loaderRes.text();
-        const dictMatch = loaderText.match(/(\[(?:'[^']{1,10}'[\s,]*){4,12}\])/i) ||
-                          loaderText.match(/(\[(?:"[^"]{1,10}"[,\s]*){4,12}\])/i);
-        if (dictMatch) {
-          const dictionary = dictMatch[1].replace(/^\[|\]$/g, '').split("','")
-            .map(s => s.replace(/^'+|'+$/g, ''))
-            .map(s => s.replace(/^"+|"+$/g, ''));
-          const decrypted = voeDecode(encodedStr, dictionary);
-          if (decrypted) {
-            const directUrl = decrypted.source || decrypted.direct_access_url;
-            if (directUrl) {
-              return { url: directUrl, quality: extractQuality(directUrl), headers: { Referer: embedUrl } };
-            }
-          }
+    // Extract JSON from <script type="application/json">["ENCODED_STRING"]
+    const jsonMatch = pageText.match(/<script[^>]*type=['"]application\/json['"][^>]*>\s*\[\s*"([^"]+)"\s*\]\s*<\/script>/i);
+    if (!jsonMatch) {
+      // Fallback: find mp4/hls URLs in the page
+      const urlPatterns = [
+        ...pageText.matchAll(/(?:mp4|hls)'\s*:\s*'([^']+)'/gi),
+        ...pageText.matchAll(/(?:mp4|hls)"\s*:\s*"([^"]+)"/gi),
+      ];
+      for (const m of urlPatterns) {
+        let u = m[1];
+        if (u.startsWith('aHR0')) {
+          try { u = base64Decode(u) || u; } catch (e) {}
         }
+        return { url: u, quality: extractQuality(u), headers: { Referer: embedUrl } };
       }
+      return null;
     }
 
-    // Fallback: find mp4/hls URLs in the page
-    const urlPatterns = [
-      ...pageText.matchAll(/(?:mp4|hls)'\s*:\s*'([^']+)'/gi),
-      ...pageText.matchAll(/(?:mp4|hls)"\s*:\s*"([^"]+)"/gi),
-    ];
-    for (const m of urlPatterns) {
-      let u = m[1];
-      if (u.startsWith('aHR0')) {
-        try { u = base64Decode(u) || u; } catch (e) {}
-      }
-      return { url: u, quality: extractQuality(u), headers: { Referer: embedUrl } };
-    }
+    const encodedStr = jsonMatch[1];
+    const decrypted = decryptVoe(encodedStr);
+    if (!decrypted) return null;
 
-    return null;
+    const directUrl = decrypted.source || decrypted.direct_access_url;
+    if (!directUrl) return null;
+
+    return { url: directUrl, quality: extractQuality(directUrl), headers: { Referer: embedUrl } };
   } catch (e) {
     return null;
   }
