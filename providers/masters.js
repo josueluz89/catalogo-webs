@@ -1,6 +1,6 @@
 /**
  * masters - Built from src/masters/
- * Generated: 2026-06-30T22:53:16.854Z
+ * Generated: 2026-06-30T23:07:10.854Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -543,7 +543,7 @@ function getEmbedResolver(url) {
   if (url.includes("vidhide") || url.includes("dintezuvio") || url.includes("minochinos") || url.includes("dramiyos") || url.includes("dhcplay") || url.includes("smoothpre") || url.includes("dhtpre") || url.includes("vidspeeder") || url.includes("moorearn") || url.includes("travid") || url.includes("vidhidehub") || url.includes("vidhidevip") || url.includes("vidhidepre") || url.includes("kinoger") || url.includes("movearnpre") || url.includes("peytonepre") || url.includes("filelions")) {
     return resolveVidHideProStream;
   }
-  if (url.includes("bysedikamoum") || url.includes("bysedi") || url.includes("filemoon") || url.includes("rapidvideo")) {
+  if (url.includes("byse") || url.includes("filemoon") || url.includes("rapidvideo")) {
     return resolveFilemoonStream;
   }
   if (url.includes("luluvid") || url.includes("lulus") || url.includes("lulu")) {
@@ -608,6 +608,8 @@ function extractSearchResults(html) {
   return candidates;
 }
 function extractEpisodes(html, season, episode) {
+  var targetSeason = parseInt(season, 10);
+  var targetEpisode = parseInt(episode, 10);
   var eplister = html.match(/<div[^>]*class="[^"]*eplister[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\!--/i);
   if (!eplister)
     eplister = html.match(/<div[^>]*class="[^"]*eplister[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
@@ -625,7 +627,7 @@ function extractEpisodes(html, season, episode) {
     if (match) {
       var s = parseInt(match[1], 10);
       var e = parseInt(match[2], 10);
-      if (s === season && e === episode)
+      if (s === targetSeason && e === targetEpisode)
         return aHref;
     }
   }

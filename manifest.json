@@ -1,12 +1,12 @@
 {
   "name": "Masters Repo",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "scrapers": [
     {
       "id": "masters",
       "name": "Masters (GnulaHD)",
       "description": "Scraper de GnulaHD que proporciona enlaces de películas y series en Latino, Castellano y Subtitulado.",
-      "version": "1.5.0",
+      "version": "1.6.0",
       "author": "Masters",
       "supportedTypes": [
         "movie",

@@ -325,7 +325,7 @@ export function getEmbedResolver(url) {
       url.includes('peytonepre') || url.includes('filelions')) {
     return resolveVidHideProStream;
   }
-  if (url.includes('bysedikamoum') || url.includes('bysedi') || url.includes('filemoon') ||
+  if (url.includes('byse') || url.includes('filemoon') ||
       url.includes('rapidvideo')) {
     return resolveFilemoonStream;
   }
@@ -348,7 +348,7 @@ export function getServerLabel(url) {
       url.includes('travid') || url.includes('vidhidehub') || url.includes('vidhidevip') ||
       url.includes('vidhidepre') || url.includes('kinoger') || url.includes('movearnpre') ||
       url.includes('peytonepre') || url.includes('filelions')) return 'VidHide';
-  if (url.includes('bysedikamoum') || url.includes('bysedi') || url.includes('filemoon') ||
+  if (url.includes('byse') || url.includes('filemoon') ||
       url.includes('rapidvideo')) return 'FileMoon';
   if (url.includes('luluvid') || url.includes('lulus')) return 'Lulu';
   if (url.includes('uqload')) return 'Uqload';

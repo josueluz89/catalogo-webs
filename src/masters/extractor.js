@@ -57,6 +57,8 @@ function extractSearchResults(html) {
 }
 
 function extractEpisodes(html, season, episode) {
+  var targetSeason = parseInt(season, 10);
+  var targetEpisode = parseInt(episode, 10);
   var eplister = html.match(/<div[^>]*class="[^"]*eplister[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\!--/i);
   if (!eplister) eplister = html.match(/<div[^>]*class="[^"]*eplister[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
   if (!eplister) return null;
@@ -73,7 +75,7 @@ function extractEpisodes(html, season, episode) {
     if (match) {
       var s = parseInt(match[1], 10);
       var e = parseInt(match[2], 10);
-      if (s === season && e === episode) return aHref;
+      if (s === targetSeason && e === targetEpisode) return aHref;
     }
   }
   return null;
