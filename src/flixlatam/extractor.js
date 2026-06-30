@@ -435,93 +435,37 @@ function getServerLabel(url) {
   return 'Online';
 }
 
+async function getImdbId(tmdbId, mediaType) {
+  const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  return data.imdb_id;
+}
+
 export async function extractStreams(tmdbId, mediaType, season, episode) {
   try {
-    const { title, originalTitle } = await getMediaTitle(tmdbId, mediaType);
-    const query = title || originalTitle;
-    if (!query) return [];
+    const imdbId = await getImdbId(tmdbId, mediaType);
+    if (!imdbId) return [];
 
-    const searchUrl = `${MAIN_URL}/search?s=${encodeURIComponent(query)}`;
-    const html = await fetchWithRetry(searchUrl);
-    const $ = cheerio.load(html);
+    let embed69Url;
+    if (mediaType === 'movie') {
+      embed69Url = `https://embed69.org/f/${imdbId}`;
+    } else {
+      const epStr = String(episode).padStart(2, '0');
+      embed69Url = `https://embed69.org/f/${imdbId}-${season}x${epStr}`;
+    }
 
-    const candidates = [];
-    $('article.item').each((i, el) => {
-      const linkElement = $(el).find('.data h3 a').first();
-      const href = linkElement.attr('href');
-      const name = linkElement.text().trim();
-      if (href) candidates.push({ name, href });
+    console.log(`[Flixlatam] Fetching direct player: ${embed69Url}`);
+    const embedHtml = await fetchWithRetry(embed69Url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://sololatino.net/'
+      }
     });
 
-    let targetUrl = null;
-    const normalizedQuery = normalizeText(query);
-    const normalizedOriginal = normalizeText(originalTitle);
-
-    for (const cand of candidates) {
-      const normalizedCand = normalizeText(cand.name);
-      if (normalizedCand.includes(normalizedQuery) || normalizedCand.includes(normalizedOriginal)) {
-        targetUrl = cand.href;
-        break;
-      }
-    }
-
-    if (!targetUrl && candidates.length > 0) {
-      targetUrl = candidates[0].href;
-    }
-
-    if (!targetUrl) return [];
-
-    let pageUrl = targetUrl;
-    if (pageUrl && !pageUrl.startsWith('http')) {
-      pageUrl = MAIN_URL + pageUrl;
-    }
-
-    if (mediaType === 'tv') {
-      const tvHtml = await fetchWithRetry(pageUrl);
-      const tv$ = cheerio.load(tvHtml);
-
-      let epUrl = null;
-      tv$('ul.episodios li').each((i, el) => {
-        const epLink = tv$(el).find('.episodiotitle a');
-        const href = epLink.attr('href');
-        const numerando = tv$(el).find('.numerando').text() || '1-1';
-        const parts = numerando.split('-');
-        const s = parseInt(parts[0], 10) || 1;
-        const e = parseInt(parts[1], 10) || 1;
-        if (s === season && e === episode) {
-          epUrl = href;
-        }
-      });
-
-      if (!epUrl) return [];
-      pageUrl = epUrl;
-      if (pageUrl && !pageUrl.startsWith('http')) {
-        pageUrl = MAIN_URL + pageUrl;
-      }
-    }
-
-    const playHtml = await fetchWithRetry(pageUrl);
-    const play$ = cheerio.load(playHtml);
-
-    let iframeUrl = play$('div.play iframe').attr('src') ||
-                    play$('iframe[src*="embed69"]').attr('src') ||
-                    play$('iframe[src*="/vidurl/"]').attr('src');
-
-    if (!iframeUrl) return [];
-
-    if (iframeUrl.startsWith('//')) {
-      iframeUrl = 'https:' + iframeUrl;
-    } else if (iframeUrl.startsWith('/')) {
-      iframeUrl = MAIN_URL + iframeUrl;
-    }
-
-    const embedHtml = await fetchWithRetry(iframeUrl, {
-      headers: { Referer: pageUrl },
-    });
-
-    const powChallengeMatch = embedHtml.match(/const\s+POW_CHALLENGE\s*=\s*'([^']+)';/);
-    const powDifficultyMatch = embedHtml.match(/const\s+POW_DIFFICULTY\s*=\s*(\d+);/);
-    const powSaltMatch = embedHtml.match(/const\s+POW_SALT\s*=\s*'([^']+)';/);
+    const powChallengeMatch = embedHtml.match(/POW_CHALLENGE\s*=\s*'([^']+)';/) || embedHtml.match(/POW_CHALLENGE = '([^']+)';/);
+    const powDifficultyMatch = embedHtml.match(/POW_DIFFICULTY\s*=\s*(\d+);/) || embedHtml.match(/POW_DIFFICULTY = (\d+);/);
+    const powSaltMatch = embedHtml.match(/POW_SALT\s*=\s*'([^']+)';/) || embedHtml.match(/POW_SALT = '([^']+)';/);
 
     if (!powChallengeMatch || !powSaltMatch) {
       return [];
@@ -545,6 +489,9 @@ export async function extractStreams(tmdbId, mediaType, season, episode) {
     const streams = [];
 
     for (const entry of dataList) {
+      const lang = entry.video_language || 'LAT';
+      if (lang !== 'LAT' && lang !== 'LATINO' && lang !== 'Unknown') continue;
+
       const allEmbeds = entry.sortedEmbeds || [];
       const downloadEmbeds = entry.downloadEmbeds || [];
 
@@ -570,7 +517,7 @@ export async function extractStreams(tmdbId, mediaType, season, episode) {
               : await detectQualityFromM3U8(directResult.url);
             streams.push({
               name: `Flixlatam Direct (${serverLabel})`,
-              title: `${quality || 'HD'} ┬À Latino ┬À ${serverLabel}`,
+              title: `${quality || 'HD'} · Latino · ${serverLabel}`,
               url: directResult.url,
               quality: quality || 'Unknown',
               headers: directResult.headers || { Referer: fixedUrl },
@@ -578,10 +525,10 @@ export async function extractStreams(tmdbId, mediaType, season, episode) {
           } else {
             streams.push({
               name: `Flixlatam Embed (${serverLabel})`,
-              title: `Embed ┬À Latino ┬À ${serverLabel}`,
+              title: `Embed · Latino · ${serverLabel}`,
               url: fixedUrl,
               quality: 'Unknown',
-              headers: { Referer: iframeUrl },
+              headers: { Referer: embed69Url },
             });
           }
         }
