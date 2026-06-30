@@ -251,10 +251,10 @@ function getPlayPage(pageUrl) {
           if ((cleanSrc.indexOf('they.tube') !== -1 || cleanSrc.indexOf('the.tube') !== -1) && resolvePath && authParam) {
             var codeMatch = cleanSrc.match(/the(?:y)?\.tube\/(?:e\/)?([A-Za-z0-9_-]+?)(?:\.html)?(?:[?#]|$)/i);
             if (codeMatch) {
-              promises.push(
-                resolveTheyTube(codeMatch[1], resolvePath, authParam, pageUrl)
-                  .then(function(result, src, title) {
-                    return function() {
+              (function(src, title) {
+                promises.push(
+                  resolveTheyTube(codeMatch[1], resolvePath, authParam, pageUrl)
+                    .then(function(result) {
                       if (result) {
                         streams.push({
                           name: 'GnulaHD (' + (title || 'Tube') + ')',
@@ -272,9 +272,9 @@ function getPlayPage(pageUrl) {
                           headers: { Referer: pageUrl, 'User-Agent': 'Mozilla/5.0' },
                         });
                       }
-                    };
-                  }(codeMatch, cleanSrc, srv.title))
-              );
+                    })
+                );
+              })(cleanSrc, srv.title);
               continue;
             }
           }
