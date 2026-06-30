@@ -97,7 +97,7 @@ function resolveTheyTube(code, resolvePath, authParam, pageUrl) {
     .then(function(raw) {
       var data = JSON.parse(raw);
       if (data && data.master) {
-        return { url: data.master, quality: '1080p', headers: { Referer: MAIN_URL + '/', 'User-Agent': 'Mozilla/5.0' } };
+        return { url: data.master, quality: '1080p', headers: { Referer: 'https://they.tube/', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } };
       }
       return null;
     })
