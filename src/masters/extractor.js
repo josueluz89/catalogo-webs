@@ -32,26 +32,18 @@ function getServerLabel(url) {
 
 function extractSearchResults(html) {
   var candidates = [];
-  var articleRegex = /<article[^>]*class="([^"]*)"[^>]*>([\s\S]*?)<\/article>/gi;
-  var article;
-  while ((article = articleRegex.exec(html)) !== null) {
-    var cls = article[1];
-    var content = article[2];
-    if (/styleegg/i.test(cls)) continue;
-    if (/\/blog\//i.test(content)) continue;
+  var cardRegex = /<a[^>]*class="[^"]*gnrd-card[^"]*"[^>]*href="([^"]*)"[^>]*title="([^"]*)"[^>]*>/gi;
+  var card;
+  while ((card = cardRegex.exec(html)) !== null) {
+    var href = card[1];
+    var title = card[2];
+    if (!href || !title) continue;
 
-    var href = (content.match(/<a[^>]*href="([^"]*)"[^>]*>/) || [])[1];
-    var titleAttr = (content.match(/title="([^"]*)"/) || [])[1];
-    var h2Text = (content.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i) || [])[1];
-
-    var itemTitle = (h2Text || titleAttr || '').replace(/<[^>]*>/g, '').trim();
-    if (!href || !itemTitle) continue;
-    if (/mejores|cronología/i.test(itemTitle)) continue;
-
-    var typeText = (content.match(/<div[^>]*class="[^"]*typez[^"]*"[^>]*>([\s\S]*?)<\/div>/i) || [])[1] || '';
-    var type = /serie/i.test(typeText) || /anime/i.test(typeText) ? 'tv' : 'movie';
-
-    candidates.push({ title: itemTitle, href: href, type: type });
+    var cleanTitle = title.replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
+    
+    // Push the candidate as both tv and movie since we cannot distinguish the type directly from the search card
+    candidates.push({ title: cleanTitle, href: href, type: 'tv' });
+    candidates.push({ title: cleanTitle, href: href, type: 'movie' });
   }
   return candidates;
 }
@@ -59,23 +51,22 @@ function extractSearchResults(html) {
 function extractEpisodes(html, season, episode) {
   var targetSeason = parseInt(season, 10);
   var targetEpisode = parseInt(episode, 10);
-  var eplister = html.match(/<div[^>]*class="[^"]*eplister[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\!--/i);
-  if (!eplister) eplister = html.match(/<div[^>]*class="[^"]*eplister[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
-  if (!eplister) return null;
-
-  var liRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
-  var li;
-  while ((li = liRegex.exec(eplister[1])) !== null) {
-    var liContent = li[1];
-    var aHref = (liContent.match(/<a[^>]*href="([^"]*)"[^>]*>/i) || [])[1];
-    var epNum = (liContent.match(/<div[^>]*class="[^"]*epl-num[^"]*"[^>]*>([\s\S]*?)<\/div>/i) || [])[1];
-    if (!aHref || !epNum) continue;
-
-    var match = epNum.match(/(\d+)x(\d+)/);
-    if (match) {
-      var s = parseInt(match[1], 10);
-      var e = parseInt(match[2], 10);
-      if (s === targetSeason && e === targetEpisode) return aHref;
+  
+  var epRegex = /<a[^>]*class="[^"]*gnrd-epc[^"]*"([\s\S]*?)>/gi;
+  var match;
+  while ((match = epRegex.exec(html)) !== null) {
+    var attrs = match[1];
+    var hrefMatch = attrs.match(/href="([^"]*)"/i);
+    var sMatch = attrs.match(/data-s="(\d+)"/i);
+    var eMatch = attrs.match(/data-e="(\d+)"/i);
+    
+    if (hrefMatch && sMatch && eMatch) {
+      var href = hrefMatch[1];
+      var s = parseInt(sMatch[1], 10);
+      var e = parseInt(eMatch[1], 10);
+      if (s === targetSeason && e === targetEpisode) {
+        return href;
+      }
     }
   }
   return null;
