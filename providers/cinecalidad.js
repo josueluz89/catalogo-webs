@@ -1,6 +1,6 @@
 /**
  * cinecalidad - Built from src/cinecalidad/
- * Generated: 2026-09-12T02:39:01.768Z
+ * Generated: 2026-09-12T03:08:23.463Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -44,7 +44,7 @@ var __async = (__this, __arguments, generator) => {
 
 // src/shared/http.js
 var FETCH_TIMEOUT = 2e4;
-function fetchWithTimeout2(url, options, timeout) {
+function fetchWithTimeout(url, options, timeout) {
   if (!options)
     options = {};
   var ms = timeout || FETCH_TIMEOUT;
@@ -83,7 +83,7 @@ function fetchWithTimeout2(url, options, timeout) {
   return fetch(url, Object.assign({}, options, req));
 }
 function fetchText(url, options, timeout) {
-  return fetchWithTimeout2(url, options, timeout).then(function(res) {
+  return fetchWithTimeout(url, options, timeout).then(function(res) {
     if (!res.ok)
       throw new Error("HTTP " + res.status + " for " + url);
     return res.text();
@@ -159,7 +159,7 @@ function detectQualityFromM3U8(url) {
     if (guessed !== "Unknown")
       return guessed;
     try {
-      const res = yield fetchWithTimeout2(url, {
+      const res = yield fetchWithTimeout(url, {
         headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
       }, 5e3);
       if (!res.ok)
@@ -267,7 +267,7 @@ function resolveVoeStream(embedUrl) {
       if (/permanentToken/i.test(pageText)) {
         const redirectMatch = pageText.match(/window\.location\.href\s*=\s*'([^']+)'/i);
         if (redirectMatch) {
-          const redirectRes = yield fetchWithTimeout2(redirectMatch[1], {
+          const redirectRes = yield fetchWithTimeout(redirectMatch[1], {
             headers: { Referer: embedUrl, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
           });
           if (redirectRes.ok) {

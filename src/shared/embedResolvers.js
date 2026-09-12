@@ -1,4 +1,4 @@
-import { fetchText, fetchWithRetry } from './http.js';
+import { fetchText, fetchWithRetry, fetchWithTimeout } from './http.js';
 import { detectQualityFromM3U8 } from './quality.js';
 import { resolveVoeStream } from './voe.js';
 
