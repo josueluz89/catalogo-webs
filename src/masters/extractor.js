@@ -106,7 +106,9 @@ function searchSite(query) {
 }
 
 export function extractStreams(tmdbId, mediaType, season, episode) {
-  return getMediaTitle(tmdbId, mediaType)
+  // Nuvio passes Stremio content types ("movie"/"series"); TMDB needs "movie"/"tv".
+  var tmdbType = (mediaType === 'tv' || mediaType === 'series' || mediaType === 'anime') ? 'tv' : 'movie';
+  return getMediaTitle(tmdbId, tmdbType)
     .then(function(media) {
       var queries = [];
       if (media.originalTitle) queries.push(media.originalTitle);
@@ -115,7 +117,7 @@ export function extractStreams(tmdbId, mediaType, season, episode) {
 
       var normalizedOriginals = [normalizeText(media.originalTitle || '')];
       var normalizedTitles = [normalizeText(media.title || '')];
-      var expectedType = mediaType === 'tv' ? 'tv' : 'movie';
+      var expectedType = tmdbType;
 
       var bestTvScore = -1, bestTvUrl = null, bestTvType = 'movie';
       var bestMovieScore = -1, bestMovieUrl = null, bestMovieType = 'movie';
@@ -184,7 +186,7 @@ export function extractStreams(tmdbId, mediaType, season, episode) {
 
       return doSearch().then(function(target) {
         if (!target) return [];
-        return getPageContent(target.url, mediaType, target.type, season, episode, media);
+        return getPageContent(target.url, tmdbType, target.type, season, episode, media);
       });
     })
     .catch(function(err) {

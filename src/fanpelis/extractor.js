@@ -128,8 +128,10 @@ function episodeStreams(postId, season, episode) {
 }
 
 export function extractStreams(tmdbId, mediaType, season, episode) {
-  var wantTv = mediaType === 'tv';
-  return getMediaTitle(tmdbId, mediaType)
+  // Nuvio passes Stremio content types ("movie"/"series"); TMDB needs "movie"/"tv".
+  var tmdbType = (mediaType === 'tv' || mediaType === 'series' || mediaType === 'anime') ? 'tv' : 'movie';
+  var wantTv = tmdbType === 'tv';
+  return getMediaTitle(tmdbId, tmdbType)
     .then(function(media) {
       // The API only matches single-word queries; try distinctive words.
       var words = searchWords(media);

@@ -1,6 +1,6 @@
 /**
  * masters - Built from src/masters/
- * Generated: 2026-09-12T01:54:47.812Z
+ * Generated: 2026-09-12T01:57:34.535Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -42,7 +42,7 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// shared/http.js
+// src/shared/http.js
 var FETCH_TIMEOUT = 2e4;
 function fetchWithTimeout(url, options, timeout) {
   if (!options)
@@ -102,7 +102,7 @@ function fetchWithRetry(url, options, retries, timeout) {
   });
 }
 
-// shared/quality.js
+// src/shared/quality.js
 var KNOWN_QUALITY = {
   vimeos: { h: "720p", n: "480p" },
   goodstream: { x: "1080p", h: "720p", n: "480p", l: "360p" },
@@ -179,7 +179,7 @@ function detectQualityFromM3U8(url) {
   });
 }
 
-// shared/voe.js
+// src/shared/voe.js
 function base64Decode(input) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
   let str = input.replace(/=+$/, "");
@@ -292,7 +292,7 @@ function resolveVoeStream(embedUrl) {
   });
 }
 
-// shared/embedResolvers.js
+// src/shared/embedResolvers.js
 function getUrlOrigin(url) {
   if (!url)
     return "";
@@ -646,7 +646,7 @@ function getEmbedResolver(url) {
   return null;
 }
 
-// masters/extractor.js
+// src/masters/extractor.js
 var TMDB_API_KEY = "1f54bd990f1cdfb230adb312546d765d";
 var MAIN_URL = "https://ww3.gnulahd.nu";
 function normalizeText(text) {
@@ -739,7 +739,8 @@ function searchSite(query) {
   });
 }
 function extractStreams(tmdbId, mediaType, season, episode) {
-  return getMediaTitle(tmdbId, mediaType).then(function(media) {
+  var tmdbType = mediaType === "tv" || mediaType === "series" || mediaType === "anime" ? "tv" : "movie";
+  return getMediaTitle(tmdbId, tmdbType).then(function(media) {
     var queries = [];
     if (media.originalTitle)
       queries.push(media.originalTitle);
@@ -749,7 +750,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       return [];
     var normalizedOriginals = [normalizeText(media.originalTitle || "")];
     var normalizedTitles = [normalizeText(media.title || "")];
-    var expectedType = mediaType === "tv" ? "tv" : "movie";
+    var expectedType = tmdbType;
     var bestTvScore = -1, bestTvUrl = null, bestTvType = "movie";
     var bestMovieScore = -1, bestMovieUrl = null, bestMovieType = "movie";
     function scoreCandidate(cand) {
@@ -840,7 +841,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
     return doSearch().then(function(target) {
       if (!target)
         return [];
-      return getPageContent(target.url, mediaType, target.type, season, episode, media);
+      return getPageContent(target.url, tmdbType, target.type, season, episode, media);
     });
   }).catch(function(err) {
     console.error("[Masters] Error: " + (err.message || err));
@@ -1030,7 +1031,7 @@ function buildStreamsFromLangs(pageUrl, playHtml, langs) {
   return streams;
 }
 
-// masters/index.js
+// src/masters/index.js
 function withTimeout(promise, ms) {
   if (typeof setTimeout === "undefined")
     return promise;

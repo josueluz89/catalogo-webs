@@ -1,6 +1,6 @@
 /**
  * fanpelis - Built from src/fanpelis/
- * Generated: 2026-09-12T01:54:47.802Z
+ * Generated: 2026-09-12T01:57:34.520Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -42,7 +42,7 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// shared/http.js
+// src/shared/http.js
 var FETCH_TIMEOUT = 2e4;
 function fetchWithTimeout(url, options, timeout) {
   if (!options)
@@ -102,7 +102,7 @@ function fetchWithRetry(url, options, retries, timeout) {
   });
 }
 
-// shared/quality.js
+// src/shared/quality.js
 var KNOWN_QUALITY = {
   vimeos: { h: "720p", n: "480p" },
   goodstream: { x: "1080p", h: "720p", n: "480p", l: "360p" },
@@ -179,7 +179,7 @@ function detectQualityFromM3U8(url) {
   });
 }
 
-// shared/voe.js
+// src/shared/voe.js
 function base64Decode(input) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
   let str = input.replace(/=+$/, "");
@@ -292,7 +292,7 @@ function resolveVoeStream(embedUrl) {
   });
 }
 
-// shared/embedResolvers.js
+// src/shared/embedResolvers.js
 function getUrlOrigin(url) {
   if (!url)
     return "";
@@ -646,7 +646,7 @@ function getEmbedResolver(url) {
   return null;
 }
 
-// fanpelis/extractor.js
+// src/fanpelis/extractor.js
 var TMDB_API_KEY = "1f54bd990f1cdfb230adb312546d765d";
 var API_URL = "https://fanpelis.to/api/rest/";
 function normalizeText(text) {
@@ -777,8 +777,9 @@ function episodeStreams(postId, season, episode) {
   });
 }
 function extractStreams(tmdbId, mediaType, season, episode) {
-  var wantTv = mediaType === "tv";
-  return getMediaTitle(tmdbId, mediaType).then(function(media) {
+  var tmdbType = mediaType === "tv" || mediaType === "series" || mediaType === "anime" ? "tv" : "movie";
+  var wantTv = tmdbType === "tv";
+  return getMediaTitle(tmdbId, tmdbType).then(function(media) {
     var words = searchWords(media);
     if (words.length === 0)
       return [];
@@ -814,7 +815,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
   });
 }
 
-// fanpelis/index.js
+// src/fanpelis/index.js
 function withTimeout(promise, ms) {
   if (typeof setTimeout === "undefined")
     return promise;

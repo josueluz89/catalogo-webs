@@ -1,6 +1,6 @@
 /**
  * cuevana - Built from src/cuevana/
- * Generated: 2026-09-12T01:54:47.791Z
+ * Generated: 2026-09-12T01:57:34.504Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -42,7 +42,7 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// shared/http.js
+// src/shared/http.js
 var FETCH_TIMEOUT = 2e4;
 function fetchWithTimeout(url, options, timeout) {
   if (!options)
@@ -102,7 +102,7 @@ function fetchWithRetry(url, options, retries, timeout) {
   });
 }
 
-// shared/quality.js
+// src/shared/quality.js
 var KNOWN_QUALITY = {
   vimeos: { h: "720p", n: "480p" },
   goodstream: { x: "1080p", h: "720p", n: "480p", l: "360p" },
@@ -179,7 +179,7 @@ function detectQualityFromM3U8(url) {
   });
 }
 
-// shared/voe.js
+// src/shared/voe.js
 function base64Decode(input) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
   let str = input.replace(/=+$/, "");
@@ -292,7 +292,7 @@ function resolveVoeStream(embedUrl) {
   });
 }
 
-// shared/embedResolvers.js
+// src/shared/embedResolvers.js
 function getUrlOrigin(url) {
   if (!url)
     return "";
@@ -646,7 +646,7 @@ function getEmbedResolver(url) {
   return null;
 }
 
-// cuevana/extractor.js
+// src/cuevana/extractor.js
 var TMDB_API_KEY = "1f54bd990f1cdfb230adb312546d765d";
 var API_URL = "https://cuevana.gs/wp-api/v1/";
 var ACCENT_MAP = { "\xE1": "a", "\xE9": "e", "\xED": "i", "\xF3": "o", "\xFA": "u", "\xFC": "u", "\xF1": "n", "\xC1": "a", "\xC9": "a", "\xCD": "i", "\xD3": "o", "\xDA": "u", "\xDC": "u", "\xD1": "n", "\xE0": "a", "\xE8": "e", "\xEC": "i", "\xF2": "o", "\xF9": "u", "\xE2": "a", "\xEA": "e", "\xEE": "i", "\xF4": "o", "\xFB": "u", "\xE4": "a", "\xEB": "e", "\xEF": "i", "\xF6": "o", "\xE7": "c", "\xE3": "a", "\xF5": "o" };
@@ -842,7 +842,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
   });
 }
 
-// cuevana/index.js
+// src/cuevana/index.js
 function withTimeout(promise, ms) {
   if (typeof setTimeout === "undefined")
     return promise;

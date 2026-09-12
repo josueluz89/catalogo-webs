@@ -234,8 +234,10 @@ function getEpisodeStreams(slug, season, episode) {
 }
 
 export function extractStreams(tmdbId, mediaType, season, episode) {
-  var expectedKind = mediaType === 'tv' ? 'tv' : 'movie';
-  return getMediaTitle(tmdbId, mediaType)
+  // Nuvio passes Stremio content types ("movie"/"series"); TMDB needs "movie"/"tv".
+  var tmdbType = (mediaType === 'tv' || mediaType === 'series' || mediaType === 'anime') ? 'tv' : 'movie';
+  var expectedKind = tmdbType;
+  return getMediaTitle(tmdbId, tmdbType)
     .then(function(media) {
       var queries = [];
       if (media.originalTitle) queries.push(media.originalTitle);
