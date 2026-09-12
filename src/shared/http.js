@@ -9,11 +9,17 @@ function fetchWithTimeout(url, options, timeout) {
     if (typeof AbortController !== 'undefined') {
       controller = new AbortController();
       signal = controller.signal;
-      setTimeout(function() { try { controller.abort(); } catch (e) {} }, ms);
+      if (typeof setTimeout !== 'undefined') {
+        (function(c) {
+          setTimeout(function() { try { c.abort(); } catch (e) {} }, ms);
+        })(controller);
+      }
     }
   } catch (e) { controller = null; }
   var headers = Object.assign({
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'es-MX,es;q=0.9,en;q=0.8'
   }, options.headers || {});
   var req = { headers: headers, redirect: 'follow' };
   if (signal) req.signal = signal;
@@ -40,6 +46,9 @@ function fetchWithRetry(url, options, retries, timeout) {
   return fetchText(url, options, timeout)
     .catch(function(e) {
       if (retries <= 0) throw e;
+      if (typeof setTimeout === 'undefined') {
+        return fetchWithRetry(url, options, retries - 1, timeout);
+      }
       return new Promise(function(r) { setTimeout(r, 1000); })
         .then(function() { return fetchWithRetry(url, options, retries - 1, timeout); });
     });

@@ -35,10 +35,16 @@ export function guessQualityFromUrl(url) {
 }
 
 export async function detectQualityFromM3U8(url) {
+  // In Hermes/QuickJS there is no setTimeout budget - avoid extra fetch and guess instead
+  if (typeof setTimeout === 'undefined') {
+    return guessQualityFromUrl(url);
+  }
+  var guessed = guessQualityFromUrl(url);
+  if (guessed !== 'Unknown') return guessed;
   try {
     const res = await fetchWithTimeout(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-    });
+    }, 5000);
     if (!res.ok) return guessQualityFromUrl(url);
     const text = await res.text();
     if (!text.includes('#EXT-X-STREAM-INF')) {

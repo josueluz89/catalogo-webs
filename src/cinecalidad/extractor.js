@@ -3,6 +3,7 @@ import { getEmbedResolver, mapDomain } from '../shared/embedResolvers.js';
 
 const TMDB_API_KEY = '1f54bd990f1cdfb230adb312546d765d';
 const SEARCH_URL = 'https://www.cinecalidad.ec';
+const FALLBACK_URLS = ['https://www.cinecalidad.ec', 'https://cinecalidad.ec', 'https://cinecalidad.to'];
 
 var ACCENT_MAP = { 'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'ü': 'u', 'ñ': 'n', 'Á': 'a', 'É': 'a', 'Í': 'i', 'Ó': 'o', 'Ú': 'u', 'Ü': 'u', 'Ñ': 'n', 'à': 'a', 'è': 'e', 'ì': 'i', 'ò': 'o', 'ù': 'u', 'â': 'a', 'ê': 'e', 'î': 'i', 'ô': 'o', 'û': 'u', 'ä': 'a', 'ë': 'e', 'ï': 'i', 'ö': 'o', 'ç': 'c', 'ã': 'a', 'õ': 'o' };
 
@@ -33,25 +34,29 @@ function getMediaTitle(tmdbId, tmdbType) {
 }
 
 function searchSite(query) {
-  var url = SEARCH_URL + '/?s=' + encodeURIComponent(query);
-  return fetchText(url).then(function(html) {
-    var out = [];
-    var artRe = /<article[\s\S]*?<\/article>/gi;
-    var am;
-    while ((am = artRe.exec(html)) !== null) {
-      var lm = am[0].match(/<a\b[^>]*href="([^"]+)"/i);
-      if (!lm) continue;
-      var href = lm[1];
-      if (href.indexOf('/ver-pelicula/') === -1 && href.indexOf('/ver-serie/') === -1) continue;
-      var title = am[0].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-      // Drop genre words tail: title text starts with the actual title.
-      out.push({ title: title.slice(0, 80), href: href });
-    }
-    return out;
-  }).catch(function() { return []; });
+  function tryUrls(idx) {
+    if (idx >= FALLBACK_URLS.length) return Promise.resolve([]);
+    var url = FALLBACK_URLS[idx] + '/?s=' + encodeURIComponent(query);
+    return fetchText(url, { headers: { Referer: FALLBACK_URLS[idx] + '/' } }).then(function(html) {
+      var out = [];
+      var artRe = /<article[\s\S]*?<\/article>/gi;
+      var am;
+      while ((am = artRe.exec(html)) !== null) {
+        var lm = am[0].match(/<a\b[^>]*href="([^"]+)"/i);
+        if (!lm) continue;
+        var href = lm[1];
+        if (href.indexOf('/ver-pelicula/') === -1 && href.indexOf('/ver-serie/') === -1) continue;
+        var title = am[0].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        out.push({ title: title.slice(0, 80), href: href });
+      }
+      if (out.length > 0) return out;
+      return tryUrls(idx + 1);
+    }).catch(function() { return tryUrls(idx + 1); });
+  }
+  return tryUrls(0);
 }
 
-function pickBest(cands, media, wantTv) {
+function pickBest(cands, media, wantTv, ignoreYear) {
   var no = normalizeText(media.originalTitle || '');
   var nt = normalizeText(media.title || '');
   var best = null, bestScore = -1;
@@ -73,7 +78,7 @@ function pickBest(cands, media, wantTv) {
       if (qm === 0) continue;
       score = qm * 10;
     }
-    if (media.year && c.title.indexOf(media.year) !== -1) score += 5;
+    if (!ignoreYear && media.year && c.title.indexOf(media.year) !== -1) score += 5;
     if (score > bestScore) { bestScore = score; best = c; }
   }
   if (!best || bestScore < 10) return null;
@@ -82,7 +87,7 @@ function pickBest(cands, media, wantTv) {
 
 function optionsFromPage(html) {
   var out = [];
-  var re = /<li[^>]*data-option="([^"]+)"[^>]*>/gi;
+  var re = /<li[^>]*data-option=["']([^"']+)["'][^>]*>/gi;
   var m;
   while ((m = re.exec(html)) !== null) {
     var url = m[1];
@@ -165,7 +170,8 @@ export function extractStreams(tmdbId, mediaType, season, episode) {
         });
       });
       return chain.then(function() {
-        var best = pickBest(all, media, wantTv);
+        var best = pickBest(all, media, wantTv, false);
+        if (!best) best = pickBest(all, media, wantTv, true);
         if (!best) return [];
         if (!wantTv) return movieStreams(best.href);
         return episodeStreams(best.href, parseInt(season, 10) || 1, parseInt(episode, 10) || 1);

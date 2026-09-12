@@ -1,6 +1,6 @@
 /**
  * cuevana - Built from src/cuevana/
- * Generated: 2026-09-12T01:57:34.504Z
+ * Generated: 2026-09-12T02:39:01.806Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -44,7 +44,7 @@ var __async = (__this, __arguments, generator) => {
 
 // src/shared/http.js
 var FETCH_TIMEOUT = 2e4;
-function fetchWithTimeout(url, options, timeout) {
+function fetchWithTimeout2(url, options, timeout) {
   if (!options)
     options = {};
   var ms = timeout || FETCH_TIMEOUT;
@@ -54,18 +54,24 @@ function fetchWithTimeout(url, options, timeout) {
     if (typeof AbortController !== "undefined") {
       controller = new AbortController();
       signal = controller.signal;
-      setTimeout(function() {
-        try {
-          controller.abort();
-        } catch (e) {
-        }
-      }, ms);
+      if (typeof setTimeout !== "undefined") {
+        (function(c) {
+          setTimeout(function() {
+            try {
+              c.abort();
+            } catch (e) {
+            }
+          }, ms);
+        })(controller);
+      }
     }
   } catch (e) {
     controller = null;
   }
   var headers = Object.assign({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "es-MX,es;q=0.9,en;q=0.8"
   }, options.headers || {});
   var req = { headers, redirect: "follow" };
   if (signal)
@@ -77,7 +83,7 @@ function fetchWithTimeout(url, options, timeout) {
   return fetch(url, Object.assign({}, options, req));
 }
 function fetchText(url, options, timeout) {
-  return fetchWithTimeout(url, options, timeout).then(function(res) {
+  return fetchWithTimeout2(url, options, timeout).then(function(res) {
     if (!res.ok)
       throw new Error("HTTP " + res.status + " for " + url);
     return res.text();
@@ -94,6 +100,9 @@ function fetchWithRetry(url, options, retries, timeout) {
   return fetchText(url, options, timeout).catch(function(e) {
     if (retries <= 0)
       throw e;
+    if (typeof setTimeout === "undefined") {
+      return fetchWithRetry(url, options, retries - 1, timeout);
+    }
     return new Promise(function(r) {
       setTimeout(r, 1e3);
     }).then(function() {
@@ -143,10 +152,16 @@ function guessQualityFromUrl(url) {
 }
 function detectQualityFromM3U8(url) {
   return __async(this, null, function* () {
+    if (typeof setTimeout === "undefined") {
+      return guessQualityFromUrl(url);
+    }
+    var guessed = guessQualityFromUrl(url);
+    if (guessed !== "Unknown")
+      return guessed;
     try {
-      const res = yield fetchWithTimeout(url, {
+      const res = yield fetchWithTimeout2(url, {
         headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
-      });
+      }, 5e3);
       if (!res.ok)
         return guessQualityFromUrl(url);
       const text = yield res.text();
@@ -252,7 +267,7 @@ function resolveVoeStream(embedUrl) {
       if (/permanentToken/i.test(pageText)) {
         const redirectMatch = pageText.match(/window\.location\.href\s*=\s*'([^']+)'/i);
         if (redirectMatch) {
-          const redirectRes = yield fetchWithTimeout(redirectMatch[1], {
+          const redirectRes = yield fetchWithTimeout2(redirectMatch[1], {
             headers: { Referer: embedUrl, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
           });
           if (redirectRes.ok) {
@@ -262,19 +277,28 @@ function resolveVoeStream(embedUrl) {
       }
       const jsonMatch = pageText.match(/<script[^>]*type=['"]application\/json['"][^>]*>\s*\[\s*"([^"]+)"\s*\]\s*<\/script>/i);
       if (!jsonMatch) {
-        const urlPatterns = [
-          ...pageText.matchAll(/(?:mp4|hls)'\s*:\s*'([^']+)'/gi),
-          ...pageText.matchAll(/(?:mp4|hls)"\s*:\s*"([^"]+)"/gi)
-        ];
-        for (const m of urlPatterns) {
-          let u = m[1];
-          if (u.startsWith("aHR0")) {
+        var re1 = /(?:mp4|hls)'\s*:\s*'([^']+)'/gi;
+        var re2 = /(?:mp4|hls)"\s*:\s*"([^"]+)"/gi;
+        var m;
+        while ((m = re1.exec(pageText)) !== null) {
+          var u1 = m[1];
+          if (u1.indexOf("aHR0") === 0) {
             try {
-              u = base64Decode(u) || u;
+              u1 = base64Decode(u1) || u1;
             } catch (e) {
             }
           }
-          return { url: u, quality: extractQuality(u), headers: { Referer: embedUrl } };
+          return { url: u1, quality: extractQuality(u1), headers: { Referer: embedUrl } };
+        }
+        while ((m = re2.exec(pageText)) !== null) {
+          var u2 = m[1];
+          if (u2.indexOf("aHR0") === 0) {
+            try {
+              u2 = base64Decode(u2) || u2;
+            } catch (e) {
+            }
+          }
+          return { url: u2, quality: extractQuality(u2), headers: { Referer: embedUrl } };
         }
         return null;
       }
@@ -348,8 +372,11 @@ var DOMAIN_MAP = {
 };
 function mapDomain(url) {
   let result = url;
-  for (const [from, to] of Object.entries(DOMAIN_MAP)) {
-    if (result.includes(from)) {
+  var keys = Object.keys(DOMAIN_MAP);
+  for (var i = 0; i < keys.length; i++) {
+    var from = keys[i];
+    var to = DOMAIN_MAP[from];
+    if (result.indexOf(from) !== -1) {
       result = result.replace(from, to);
       break;
     }
@@ -500,6 +527,7 @@ function resolveLulusStream(embedUrl) {
       const filecode = embedUrl.replace(/\/+$/, "").split("/").pop();
       if (!filecode)
         return null;
+      var bodyStr = "op=embed&file_code=" + encodeURIComponent(filecode) + "&auto=1&referer=" + encodeURIComponent(embedUrl);
       const res = yield fetch(origin + "/dl", {
         method: "POST",
         headers: {
@@ -507,12 +535,7 @@ function resolveLulusStream(embedUrl) {
           "User-Agent": "Mozilla/5.0",
           Referer: origin
         },
-        body: new URLSearchParams({
-          op: "embed",
-          file_code: filecode,
-          auto: "1",
-          referer: embedUrl
-        })
+        body: bodyStr
       });
       if (!res.ok)
         return null;
@@ -588,6 +611,43 @@ function resolveYourUploadStream(embedUrl) {
     }
   });
 }
+function resolveVidaraStream(embedUrl) {
+  return __async(this, null, function* () {
+    try {
+      const origin = getUrlOrigin(embedUrl);
+      const code = embedUrl.replace(/\/+$/, "").split("/").pop().split("?")[0];
+      if (!code)
+        return null;
+      const res = yield fetchWithTimeout(origin + "/api/stream", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Referer: embedUrl,
+          Origin: origin,
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        },
+        body: JSON.stringify({ filecode: code })
+      });
+      if (!res.ok)
+        return null;
+      let data;
+      try {
+        data = JSON.parse(yield res.text());
+      } catch (e) {
+        return null;
+      }
+      if (!data || !data.streaming_url)
+        return null;
+      return {
+        url: data.streaming_url,
+        quality: "1080p",
+        headers: { Referer: origin + "/", Origin: origin }
+      };
+    } catch (e) {
+      return null;
+    }
+  });
+}
 function resolveOkRuStream(embedUrl) {
   return __async(this, null, function* () {
     try {
@@ -640,6 +700,9 @@ function getEmbedResolver(url) {
   if (url.includes("yourupload")) {
     return resolveYourUploadStream;
   }
+  if (url.includes("vidara") || url.includes("vidwara")) {
+    return resolveVidaraStream;
+  }
   if (url.includes("uqload")) {
     return resolveUqloadStream;
   }
@@ -648,7 +711,7 @@ function getEmbedResolver(url) {
 
 // src/cuevana/extractor.js
 var TMDB_API_KEY = "1f54bd990f1cdfb230adb312546d765d";
-var API_URL = "https://cuevana.gs/wp-api/v1/";
+var API_FALLBACKS = ["https://cuevana.gs/wp-api/v1/", "https://cuevana8.com/wp-api/v1/", "https://cuevana3.eu/wp-api/v1/"];
 var ACCENT_MAP = { "\xE1": "a", "\xE9": "e", "\xED": "i", "\xF3": "o", "\xFA": "u", "\xFC": "u", "\xF1": "n", "\xC1": "a", "\xC9": "a", "\xCD": "i", "\xD3": "o", "\xDA": "u", "\xDC": "u", "\xD1": "n", "\xE0": "a", "\xE8": "e", "\xEC": "i", "\xF2": "o", "\xF9": "u", "\xE2": "a", "\xEA": "e", "\xEE": "i", "\xF4": "o", "\xFB": "u", "\xE4": "a", "\xEB": "e", "\xEF": "i", "\xF6": "o", "\xE7": "c", "\xE3": "a", "\xF5": "o" };
 function stripAccents(s) {
   return (s || "").replace(/[^\x00-\x7F]/g, function(c) {
@@ -695,17 +758,30 @@ function getMediaTitle(tmdbId, tmdbType) {
     };
   });
 }
-function api(path) {
-  return fetchJson(API_URL + path).then(function(res) {
+function tryApi(path, idx) {
+  if (idx === void 0)
+    idx = 0;
+  if (idx >= API_FALLBACKS.length)
+    return Promise.reject(new Error("Cuevana API error - all domains failed"));
+  return fetchJson(API_FALLBACKS[idx] + path).then(function(res) {
     if (!res || res.error)
       throw new Error("Cuevana API error");
     return res.data;
+  }).catch(function(e) {
+    if (idx + 1 < API_FALLBACKS.length)
+      return tryApi(path, idx + 1);
+    throw e;
   });
 }
-function pickPost(posts, media, wantTv) {
+function api(path) {
+  return tryApi(path, 0);
+}
+function pickPost(posts, media, wantTv, ignoreYear) {
   var no = normalizeText(media.originalTitle || "");
   var nt = normalizeText(media.title || "");
   var best = null, bestScore = -1;
+  var allNorm = (no + " " + nt).trim();
+  var qWords = allNorm ? allNorm.split(" ").filter(Boolean) : [];
   for (var i = 0; i < posts.length; i++) {
     var p = posts[i];
     var isTv = p.type === "tvshows" || p.type === "series" || p.type === "animes";
@@ -717,12 +793,28 @@ function pickPost(posts, media, wantTv) {
       score = 100;
     else if (no && (pt.indexOf(no) !== -1 || no.indexOf(pt) !== -1) || nt && (pt.indexOf(nt) !== -1 || nt.indexOf(pt) !== -1))
       score = 80;
-    if (score === 0)
-      continue;
-    if (media.year && (p.title || "").indexOf(media.year) !== -1)
-      score += 5;
-    else if (media.year && p.release_date && p.release_date.indexOf(media.year) === 0)
-      score += 5;
+    if (score === 0) {
+      var ptWords = pt.split(" ").filter(Boolean);
+      var qMatch = 0, cMatch = 0;
+      for (var qi = 0; qi < qWords.length; qi++)
+        if (pt.indexOf(qWords[qi]) !== -1)
+          qMatch++;
+      for (var ci = 0; ci < ptWords.length; ci++)
+        for (var qj = 0; qj < qWords.length; qj++)
+          if (qWords[qj] === ptWords[ci]) {
+            cMatch++;
+            break;
+          }
+      score = qMatch * 8 + cMatch * 5;
+      if (score < 10)
+        continue;
+    }
+    if (!ignoreYear) {
+      if (media.year && (p.title || "").indexOf(media.year) !== -1)
+        score += 5;
+      else if (media.year && p.release_date && p.release_date.indexOf(media.year) === 0)
+        score += 5;
+    }
     if (score > bestScore) {
       bestScore = score;
       best = p;
@@ -736,13 +828,13 @@ function unwrapPlayer(embedUrl) {
   return fetchText(embedUrl, { headers: { Referer: "https://cuevana.gs/" } }).then(function(html) {
     var m = html.match(/<iframe\b[^>]*src="([^"]+)"[^>]*>/i);
     if (!m)
-      return null;
+      return embedUrl;
     var src = m[1];
     if (src.indexOf("//") === 0)
       src = "https:" + src;
-    return src.indexOf("http") === 0 ? src : null;
+    return src.indexOf("http") === 0 ? src : embedUrl;
   }).catch(function() {
-    return null;
+    return embedUrl;
   });
 }
 function resolveEmbeds(embeds) {
@@ -752,7 +844,9 @@ function resolveEmbeds(embeds) {
     if (!url || url.indexOf("magnet:") === 0)
       return Promise.resolve();
     return unwrapPlayer(url).then(function(target) {
-      if (!target || target.indexOf("cuevana") !== -1)
+      if (!target)
+        return null;
+      if (target !== url && target.indexOf("cuevana") !== -1)
         return null;
       var fixed = mapDomain(target);
       var resolver = getEmbedResolver(fixed);
@@ -829,7 +923,9 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       });
     });
     return chain.then(function() {
-      var best = pickPost(posts, media, wantTv);
+      var best = pickPost(posts, media, wantTv, false);
+      if (!best)
+        best = pickPost(posts, media, wantTv, true);
       if (!best)
         return [];
       if (!wantTv)

@@ -3,12 +3,13 @@ import { getEmbedResolver, mapDomain } from '../shared/embedResolvers.js';
 
 const TMDB_API_KEY = '1f54bd990f1cdfb230adb312546d765d';
 const MAIN_URL = 'https://ww3.gnulahd.nu';
+const FALLBACK_URL = 'https://gnulahd.nu';
 
+var ACCENT_MAP = { 'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'ü': 'u', 'ñ': 'n', 'Á': 'a', 'É': 'e', 'Í': 'i', 'Ó': 'o', 'Ú': 'u', 'Ü': 'u', 'Ñ': 'n', 'à': 'a', 'è': 'e', 'ì': 'i', 'ò': 'o', 'ù': 'u', 'â': 'a', 'ê': 'e', 'î': 'i', 'ô': 'o', 'û': 'u', 'ä': 'a', 'ë': 'e', 'ï': 'i', 'ö': 'o', 'ç': 'c', 'ã': 'a', 'õ': 'o' };
+function stripAccents(s) { return (s || '').replace(/[^\x00-\x7F]/g, function(c) { return ACCENT_MAP[c] || ''; }); }
 function normalizeText(text) {
   if (!text) return '';
-  return text.toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+  return stripAccents(text.toLowerCase())
     .replace(/[^a-z0-9]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -100,9 +101,15 @@ function resolveTheyTube(code, resolvePath, authParam, pageUrl) {
 
 function searchSite(query) {
   var searchUrl = MAIN_URL + '/?s=' + encodeURIComponent(query);
-  return fetchText(searchUrl).then(function(html) {
-    return extractSearchResults(html);
-  });
+  return fetchText(searchUrl, { headers: { Referer: MAIN_URL + '/', 'Accept-Language': 'es-MX,es;q=0.9' } })
+    .then(function(html) { return extractSearchResults(html); })
+    .catch(function() {
+      // Fallback domain if main is blocked/404 (GnulaHD rotates ww3/gnulahd)
+      var fbUrl = FALLBACK_URL + '/?s=' + encodeURIComponent(query);
+      return fetchText(fbUrl, { headers: { Referer: FALLBACK_URL + '/' } })
+        .then(function(html) { return extractSearchResults(html); })
+        .catch(function() { return []; });
+    });
 }
 
 export function extractStreams(tmdbId, mediaType, season, episode) {
@@ -304,11 +311,23 @@ function buildStreamsFromLangs(pageUrl, playHtml, langs) {
       var streams = [];
       if (!langs || !langs.length) return streams;
 
+      // Filter Latino first, fallback to any language if Latino empty (for coverage)
+      var latinoLangs = [];
+      var otherLangs = [];
+      for (var fl = 0; fl < langs.length; fl++) {
+        var lbl = (langs[fl].label || '').toLowerCase();
+        if (lbl.indexOf('latino') !== -1 || lbl.indexOf('mx') !== -1) latinoLangs.push(langs[fl]);
+        else otherLangs.push(langs[fl]);
+      }
+      var useLangs = latinoLangs.length > 0 ? latinoLangs : langs;
+      var isFallback = latinoLangs.length === 0;
+
       var promises = [];
-      for (var l = 0; l < langs.length; l++) {
-        var langobj = langs[l];
+      for (var l = 0; l < useLangs.length; l++) {
+        var langobj = useLangs[l];
         var label = langobj.label || '';
-        if (label.toLowerCase().indexOf('latino') === -1 && label.toLowerCase().indexOf('mx') === -1) continue;
+        // keep original filter only when Latino exists; fallback uses any label
+        if (!isFallback && label.toLowerCase().indexOf('latino') === -1 && label.toLowerCase().indexOf('mx') === -1) continue;
 
         var servers = langobj.servers || [];
         for (var s = 0; s < servers.length; s++) {
@@ -320,28 +339,29 @@ function buildStreamsFromLangs(pageUrl, playHtml, langs) {
           if ((cleanSrc.indexOf('they.tube') !== -1 || cleanSrc.indexOf('the.tube') !== -1) && resolvePath && authParam) {
             var codeMatch = cleanSrc.match(/the(?:y)?\.tube\/(?:e\/)?([A-Za-z0-9_-]+?)(?:\.html)?(?:[?#]|$)/i);
             if (codeMatch) {
-               (function(src, title) {
-                promises.push(
-                  resolveTheyTube(codeMatch[1], resolvePath, authParam, pageUrl)
-                    .then(function(result) {
-                      if (result) {
-                        streams.push({
-                          name: 'GnulaHD (' + (title || 'Tube') + ')',
-                          title: (result.quality || 'HD') + ' · Latino · ' + (title || 'Tube'),
-                          url: result.url,
-                          quality: result.quality || 'HD',
-                          headers: result.headers,
-                        });
-                      }
-                    })
-                );
-              })(cleanSrc, srv.title);
+               (function(src, title, lTag) {
+                 promises.push(
+                   resolveTheyTube(codeMatch[1], resolvePath, authParam, pageUrl)
+                     .then(function(result) {
+                       if (result) {
+                         streams.push({
+                           name: 'GnulaHD (' + (title || 'Tube') + ')',
+                           title: (result.quality || 'HD') + ' · ' + lTag + ' · ' + (title || 'Tube'),
+                           url: result.url,
+                           quality: result.quality || 'HD',
+                           headers: result.headers,
+                         });
+                       }
+                     })
+                 );
+               })(cleanSrc, srv.title, isFallback ? label : 'Latino');
               continue;
             }
           }
 
           var serverLabel = getServerLabel(cleanSrc);
-          (function(srcUrl, srvTitle, sLabel) {
+          var langTag = isFallback ? label : 'Latino';
+          (function(srcUrl, srvTitle, sLabel, lTag) {
             var fixedUrl = mapDomain(srcUrl);
             var resolver = getEmbedResolver(fixedUrl);
             if (resolver) {
@@ -351,7 +371,7 @@ function buildStreamsFromLangs(pageUrl, playHtml, langs) {
                     if (result && result.url) {
                       streams.push({
                         name: 'GnulaHD Direct (' + (srvTitle || sLabel) + ')',
-                        title: (result.quality || 'HD') + ' · Latino · ' + (srvTitle || sLabel),
+                        title: (result.quality || 'HD') + ' · ' + lTag + ' · ' + (srvTitle || sLabel),
                         url: result.url,
                         quality: result.quality || 'HD',
                         headers: result.headers,
@@ -363,7 +383,7 @@ function buildStreamsFromLangs(pageUrl, playHtml, langs) {
                   })
               );
             }
-          })(cleanSrc, srv.title, serverLabel);
+          })(cleanSrc, srv.title, serverLabel, langTag);
         }
       }
 

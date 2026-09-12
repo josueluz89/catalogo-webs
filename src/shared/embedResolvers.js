@@ -91,8 +91,11 @@ const DOMAIN_MAP = {
 
 export function mapDomain(url) {
   let result = url;
-  for (const [from, to] of Object.entries(DOMAIN_MAP)) {
-    if (result.includes(from)) {
+  var keys = Object.keys(DOMAIN_MAP);
+  for (var i = 0; i < keys.length; i++) {
+    var from = keys[i];
+    var to = DOMAIN_MAP[from];
+    if (result.indexOf(from) !== -1) {
       result = result.replace(from, to);
       break;
     }
@@ -245,6 +248,7 @@ export async function resolveLulusStream(embedUrl) {
     const filecode = embedUrl.replace(/\/+$/, '').split('/').pop();
     if (!filecode) return null;
 
+    var bodyStr = 'op=embed&file_code=' + encodeURIComponent(filecode) + '&auto=1&referer=' + encodeURIComponent(embedUrl);
     const res = await fetch(origin + '/dl', {
       method: 'POST',
       headers: {
@@ -252,12 +256,7 @@ export async function resolveLulusStream(embedUrl) {
         'User-Agent': 'Mozilla/5.0',
         Referer: origin,
       },
-      body: new URLSearchParams({
-        op: 'embed',
-        file_code: filecode,
-        auto: '1',
-        referer: embedUrl,
-      }),
+      body: bodyStr,
     });
 
     if (!res.ok) return null;
@@ -334,6 +333,35 @@ export async function resolveYourUploadStream(embedUrl) {
   }
 }
 
+export async function resolveVidaraStream(embedUrl) {
+  try {
+    const origin = getUrlOrigin(embedUrl);
+    const code = embedUrl.replace(/\/+$/, '').split('/').pop().split('?')[0];
+    if (!code) return null;
+    const res = await fetchWithTimeout(origin + '/api/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Referer: embedUrl,
+        Origin: origin,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      },
+      body: JSON.stringify({ filecode: code }),
+    });
+    if (!res.ok) return null;
+    let data;
+    try { data = JSON.parse(await res.text()); } catch (e) { return null; }
+    if (!data || !data.streaming_url) return null;
+    return {
+      url: data.streaming_url,
+      quality: '1080p',
+      headers: { Referer: origin + '/', Origin: origin },
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 export async function resolveOkRuStream(embedUrl) {
   try {
     const html = await fetchWithRetry(embedUrl, {
@@ -393,6 +421,9 @@ export function getEmbedResolver(url) {
   }
   if (url.includes('yourupload')) {
     return resolveYourUploadStream;
+  }
+  if (url.includes('vidara') || url.includes('vidwara')) {
+    return resolveVidaraStream;
   }
   if (url.includes('uqload')) {
     return resolveUqloadStream;

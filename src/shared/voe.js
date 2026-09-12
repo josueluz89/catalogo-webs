@@ -86,17 +86,23 @@ export async function resolveVoeStream(embedUrl) {
     // Extract JSON from <script type="application/json">["ENCODED_STRING"]
     const jsonMatch = pageText.match(/<script[^>]*type=['"]application\/json['"][^>]*>\s*\[\s*"([^"]+)"\s*\]\s*<\/script>/i);
     if (!jsonMatch) {
-      // Fallback: find mp4/hls URLs in the page
-      const urlPatterns = [
-        ...pageText.matchAll(/(?:mp4|hls)'\s*:\s*'([^']+)'/gi),
-        ...pageText.matchAll(/(?:mp4|hls)"\s*:\s*"([^"]+)"/gi),
-      ];
-      for (const m of urlPatterns) {
-        let u = m[1];
-        if (u.startsWith('aHR0')) {
-          try { u = base64Decode(u) || u; } catch (e) {}
+      // Fallback: find mp4/hls URLs in the page (Hermes-safe: no matchAll)
+      var re1 = /(?:mp4|hls)'\s*:\s*'([^']+)'/gi;
+      var re2 = /(?:mp4|hls)"\s*:\s*"([^"]+)"/gi;
+      var m;
+      while ((m = re1.exec(pageText)) !== null) {
+        var u1 = m[1];
+        if (u1.indexOf('aHR0') === 0) {
+          try { u1 = base64Decode(u1) || u1; } catch (e) {}
         }
-        return { url: u, quality: extractQuality(u), headers: { Referer: embedUrl } };
+        return { url: u1, quality: extractQuality(u1), headers: { Referer: embedUrl } };
+      }
+      while ((m = re2.exec(pageText)) !== null) {
+        var u2 = m[1];
+        if (u2.indexOf('aHR0') === 0) {
+          try { u2 = base64Decode(u2) || u2; } catch (e) {}
+        }
+        return { url: u2, quality: extractQuality(u2), headers: { Referer: embedUrl } };
       }
       return null;
     }

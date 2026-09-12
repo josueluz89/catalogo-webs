@@ -3,6 +3,7 @@ import { getEmbedResolver, mapDomain } from '../shared/embedResolvers.js';
 
 const TMDB_API_KEY = '1f54bd990f1cdfb230adb312546d765d';
 const API_URL = 'https://cuevana.gs/wp-api/v1/';
+const API_FALLBACKS = ['https://cuevana.gs/wp-api/v1/', 'https://cuevana8.com/wp-api/v1/', 'https://cuevana3.eu/wp-api/v1/'];
 
 var ACCENT_MAP = { 'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'ü': 'u', 'ñ': 'n', 'Á': 'a', 'É': 'a', 'Í': 'i', 'Ó': 'o', 'Ú': 'u', 'Ü': 'u', 'Ñ': 'n', 'à': 'a', 'è': 'e', 'ì': 'i', 'ò': 'o', 'ù': 'u', 'â': 'a', 'ê': 'e', 'î': 'i', 'ô': 'o', 'û': 'u', 'ä': 'a', 'ë': 'e', 'ï': 'i', 'ö': 'o', 'ç': 'c', 'ã': 'a', 'õ': 'o' };
 
@@ -56,17 +57,26 @@ function getMediaTitle(tmdbId, tmdbType) {
   });
 }
 
-function api(path) {
-  return fetchJson(API_URL + path).then(function(res) {
+function tryApi(path, idx) {
+  if (idx === undefined) idx = 0;
+  if (idx >= API_FALLBACKS.length) return Promise.reject(new Error('Cuevana API error - all domains failed'));
+  return fetchJson(API_FALLBACKS[idx] + path).then(function(res) {
     if (!res || res.error) throw new Error('Cuevana API error');
     return res.data;
+  }).catch(function(e) {
+    if (idx + 1 < API_FALLBACKS.length) return tryApi(path, idx + 1);
+    throw e;
   });
 }
+function api(path) { return tryApi(path, 0); }
 
-function pickPost(posts, media, wantTv) {
+function pickPost(posts, media, wantTv, ignoreYear) {
   var no = normalizeText(media.originalTitle || '');
   var nt = normalizeText(media.title || '');
   var best = null, bestScore = -1;
+  // Build word list for fuzzy fallback (same as fanpelis)
+  var allNorm = (no + ' ' + nt).trim();
+  var qWords = allNorm ? allNorm.split(' ').filter(Boolean) : [];
   for (var i = 0; i < posts.length; i++) {
     var p = posts[i];
     var isTv = p.type === 'tvshows' || p.type === 'series' || p.type === 'animes';
@@ -76,26 +86,35 @@ function pickPost(posts, media, wantTv) {
     if (pt === no || pt === nt) score = 100;
     else if ((no && (pt.indexOf(no) !== -1 || no.indexOf(pt) !== -1)) ||
              (nt && (pt.indexOf(nt) !== -1 || nt.indexOf(pt) !== -1))) score = 80;
-    if (score === 0) continue;
-    if (media.year && (p.title || '').indexOf(media.year) !== -1) score += 5;
-    else if (media.year && p.release_date && p.release_date.indexOf(media.year) === 0) score += 5;
+    if (score === 0) {
+      var ptWords = pt.split(' ').filter(Boolean);
+      var qMatch = 0, cMatch = 0;
+      for (var qi = 0; qi < qWords.length; qi++) if (pt.indexOf(qWords[qi]) !== -1) qMatch++;
+      for (var ci = 0; ci < ptWords.length; ci++) for (var qj = 0; qj < qWords.length; qj++) if (qWords[qj] === ptWords[ci]) { cMatch++; break; }
+      score = qMatch * 8 + cMatch * 5;
+      if (score < 10) continue;
+    }
+    if (!ignoreYear) {
+      if (media.year && (p.title || '').indexOf(media.year) !== -1) score += 5;
+      else if (media.year && p.release_date && p.release_date.indexOf(media.year) === 0) score += 5;
+    }
     if (score > bestScore) { bestScore = score; best = p; }
   }
   return best;
 }
 
-// Cuevana wraps embeds in player.php pages; unwrap to the direct host iframe.
+// Cuevana wraps some embeds in player.php pages; unwrap to the direct host iframe.
 function unwrapPlayer(embedUrl) {
   if (!embedUrl || embedUrl.indexOf('player.php') === -1) return Promise.resolve(embedUrl);
   return fetchText(embedUrl, { headers: { Referer: 'https://cuevana.gs/' } })
     .then(function(html) {
       var m = html.match(/<iframe\b[^>]*src="([^"]+)"[^>]*>/i);
-      if (!m) return null;
+      if (!m) return embedUrl;
       var src = m[1];
       if (src.indexOf('//') === 0) src = 'https:' + src;
-      return src.indexOf('http') === 0 ? src : null;
+      return src.indexOf('http') === 0 ? src : embedUrl;
     })
-    .catch(function() { return null; });
+    .catch(function() { return embedUrl; });
 }
 
 function resolveEmbeds(embeds) {
@@ -104,7 +123,9 @@ function resolveEmbeds(embeds) {
     var url = e.url || '';
     if (!url || url.indexOf('magnet:') === 0) return Promise.resolve();
     return unwrapPlayer(url).then(function(target) {
-      if (!target || target.indexOf('cuevana') !== -1) return null;
+      if (!target) return null;
+      // Only drop if unwrapped URL is still cuevana-related (avoid infinite loop)
+      if (target !== url && target.indexOf('cuevana') !== -1) return null;
       var fixed = mapDomain(target);
       var resolver = getEmbedResolver(fixed);
       if (!resolver) return null;
@@ -171,7 +192,8 @@ export function extractStreams(tmdbId, mediaType, season, episode) {
         });
       });
       return chain.then(function() {
-        var best = pickPost(posts, media, wantTv);
+        var best = pickPost(posts, media, wantTv, false);
+        if (!best) best = pickPost(posts, media, wantTv, true);
         if (!best) return [];
         if (!wantTv) return movieStreams(best._id);
         return episodeStreams(best._id, parseInt(season, 10) || 1, parseInt(episode, 10) || 1);
