@@ -333,6 +333,104 @@ export async function resolveYourUploadStream(embedUrl) {
   }
 }
 
+// Shared helper: StreamWish-style players (goodstream, vimeos) expose
+// sources:[{file:"...master.m3u8..."}] either in plain HTML or inside a
+// Dean Edwards packed eval block.
+function extractUrlsetM3U8(html) {
+  try {
+    if (!html) return null;
+    // Edges vary serialization per request: JSON-escaped quotes/slashes,
+    // protocol-relative URLs. Normalize before matching.
+    html = html.replace(/\\"/g, '"').replace(/\\\//g, '/');
+    var m = html.match(/sources\s*:\s*\[\s*\{\s*file\s*:\s*"([^"]+?\.m3u8[^"]*?)"/i);
+    var u = m && m[1];
+    if (u && u.indexOf('//') === 0) u = 'https:' + u;
+    if (u && u.indexOf('http') === 0) return u;
+    var unpacked = unpackPacked(html);
+    if (unpacked) {
+      unpacked = unpacked.replace(/\\"/g, '"').replace(/\\\//g, '/');
+      var m2 = unpacked.match(/file\s*:\s*"([^"]+?\.m3u8[^"]*?)"/i) ||
+               unpacked.match(/((?:https?:)?\/\/[^"'\s]+\.m3u8[^"'\s]*)/i);
+      if (m2) {
+        var u2 = m2[1] || m2[0];
+        if (u2 && u2.indexOf('//') === 0) u2 = 'https:' + u2;
+        if (u2 && u2.indexOf('http') === 0) return u2;
+      }
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function resolveGoodstreamStream(embedUrl) {
+  try {
+    const origin = getUrlOrigin(embedUrl);
+    // Short budget: a hanging host must not eat the 40s provider cap.
+    const html = await fetchWithRetry(embedUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        Referer: origin + '/',
+      },
+    }, 1, 12000);
+    const url = extractUrlsetM3U8(html);
+    if (!url) return null;
+    const quality = await detectQualityFromM3U8(url);
+    return { url, quality, headers: { Referer: origin + '/' } };
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function resolveVimeosStream(embedUrl) {
+  try {
+    const origin = getUrlOrigin(embedUrl);
+    // Short budget: a hanging host must not eat the 40s provider cap.
+    const html = await fetchWithRetry(embedUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        Referer: origin + '/',
+      },
+    }, 1, 12000);
+    const url = extractUrlsetM3U8(html);
+    if (!url) return null;
+    const quality = await detectQualityFromM3U8(url);
+    return { url, quality, headers: { Referer: origin + '/' } };
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function resolveDoodStream(embedUrl) {
+  try {
+    // Dood tar-pits blocked IPs (hangs instead of failing): shortest budget.
+    const html = await fetchWithRetry(embedUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        Referer: embedUrl,
+      },
+    }, 1, 10000);
+    const host = getUrlOrigin(embedUrl);
+    const m = html.match(/\/pass_md5\/([\w\-\/.]+)/);
+    if (!m) return null;
+    const res = await fetchWithTimeout(host + '/pass_md5/' + m[1], {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Referer: embedUrl,
+      },
+    }, 10000);
+    if (!res.ok) return null;
+    const url = (await res.text()).trim();
+    if (!url || url.indexOf('http') !== 0) return null;
+    return { url, quality: '720p', headers: { Referer: host + '/' } };
+  } catch (e) {
+    return null;
+  }
+}
+
 export async function resolveVidaraStream(embedUrl) {
   try {
     const origin = getUrlOrigin(embedUrl);
@@ -428,6 +526,16 @@ export function getEmbedResolver(url) {
   if (url.includes('uqload')) {
     return resolveUqloadStream;
   }
+  if (url.includes('goodstream')) {
+    return resolveGoodstreamStream;
+  }
+  if (url.includes('vimeos')) {
+    return resolveVimeosStream;
+  }
+  if (url.includes('doodstream') || url.includes('dsvplay') ||
+      url.includes('dood.to') || url.includes('dood.watch') || url.includes('dood.so')) {
+    return resolveDoodStream;
+  }
   return null;
 }
 
@@ -447,5 +555,6 @@ export function getServerLabel(url) {
   if (url.includes('uqload')) return 'Uqload';
   if (url.includes('goodstream')) return 'GoodStream';
   if (url.includes('vimeos')) return 'Vimeos';
+  if (url.includes('doodstream') || url.includes('dsvplay') || url.includes('dood.')) return 'Dood';
   return 'Online';
 }

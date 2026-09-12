@@ -1,6 +1,6 @@
 /**
  * fanpelis - Built from src/fanpelis/
- * Generated: 2026-09-12T03:08:23.996Z
+ * Generated: 2026-09-12T03:36:18.444Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -611,6 +611,107 @@ function resolveYourUploadStream(embedUrl) {
     }
   });
 }
+function extractUrlsetM3U8(html) {
+  try {
+    if (!html)
+      return null;
+    html = html.replace(/\\"/g, '"').replace(/\\\//g, "/");
+    var m = html.match(/sources\s*:\s*\[\s*\{\s*file\s*:\s*"([^"]+?\.m3u8[^"]*?)"/i);
+    var u = m && m[1];
+    if (u && u.indexOf("//") === 0)
+      u = "https:" + u;
+    if (u && u.indexOf("http") === 0)
+      return u;
+    var unpacked = unpackPacked(html);
+    if (unpacked) {
+      unpacked = unpacked.replace(/\\"/g, '"').replace(/\\\//g, "/");
+      var m2 = unpacked.match(/file\s*:\s*"([^"]+?\.m3u8[^"]*?)"/i) || unpacked.match(/((?:https?:)?\/\/[^"'\s]+\.m3u8[^"'\s]*)/i);
+      if (m2) {
+        var u2 = m2[1] || m2[0];
+        if (u2 && u2.indexOf("//") === 0)
+          u2 = "https:" + u2;
+        if (u2 && u2.indexOf("http") === 0)
+          return u2;
+      }
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+function resolveGoodstreamStream(embedUrl) {
+  return __async(this, null, function* () {
+    try {
+      const origin = getUrlOrigin(embedUrl);
+      const html = yield fetchWithRetry(embedUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          Referer: origin + "/"
+        }
+      }, 1, 12e3);
+      const url = extractUrlsetM3U8(html);
+      if (!url)
+        return null;
+      const quality = yield detectQualityFromM3U8(url);
+      return { url, quality, headers: { Referer: origin + "/" } };
+    } catch (e) {
+      return null;
+    }
+  });
+}
+function resolveVimeosStream(embedUrl) {
+  return __async(this, null, function* () {
+    try {
+      const origin = getUrlOrigin(embedUrl);
+      const html = yield fetchWithRetry(embedUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          Referer: origin + "/"
+        }
+      }, 1, 12e3);
+      const url = extractUrlsetM3U8(html);
+      if (!url)
+        return null;
+      const quality = yield detectQualityFromM3U8(url);
+      return { url, quality, headers: { Referer: origin + "/" } };
+    } catch (e) {
+      return null;
+    }
+  });
+}
+function resolveDoodStream(embedUrl) {
+  return __async(this, null, function* () {
+    try {
+      const html = yield fetchWithRetry(embedUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          Referer: embedUrl
+        }
+      }, 1, 1e4);
+      const host = getUrlOrigin(embedUrl);
+      const m = html.match(/\/pass_md5\/([\w\-\/.]+)/);
+      if (!m)
+        return null;
+      const res = yield fetchWithTimeout(host + "/pass_md5/" + m[1], {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          Referer: embedUrl
+        }
+      }, 1e4);
+      if (!res.ok)
+        return null;
+      const url = (yield res.text()).trim();
+      if (!url || url.indexOf("http") !== 0)
+        return null;
+      return { url, quality: "720p", headers: { Referer: host + "/" } };
+    } catch (e) {
+      return null;
+    }
+  });
+}
 function resolveVidaraStream(embedUrl) {
   return __async(this, null, function* () {
     try {
@@ -705,6 +806,15 @@ function getEmbedResolver(url) {
   }
   if (url.includes("uqload")) {
     return resolveUqloadStream;
+  }
+  if (url.includes("goodstream")) {
+    return resolveGoodstreamStream;
+  }
+  if (url.includes("vimeos")) {
+    return resolveVimeosStream;
+  }
+  if (url.includes("doodstream") || url.includes("dsvplay") || url.includes("dood.to") || url.includes("dood.watch") || url.includes("dood.so")) {
+    return resolveDoodStream;
   }
   return null;
 }
