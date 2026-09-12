@@ -1,11 +1,25 @@
-const FETCH_TIMEOUT = 15000;
+const FETCH_TIMEOUT = 20000;
 
 function fetchWithTimeout(url, options, timeout) {
   if (!options) options = {};
+  var ms = timeout || FETCH_TIMEOUT;
+  var controller = null;
+  var signal = null;
+  try {
+    if (typeof AbortController !== 'undefined') {
+      controller = new AbortController();
+      signal = controller.signal;
+      setTimeout(function() { try { controller.abort(); } catch (e) {} }, ms);
+    }
+  } catch (e) { controller = null; }
   var headers = Object.assign({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   }, options.headers || {});
-  return fetch(url, Object.assign({}, options, { headers: headers, redirect: 'follow' }));
+  var req = { headers: headers, redirect: 'follow' };
+  if (signal) req.signal = signal;
+  if (options.method) req.method = options.method;
+  if (options.body) req.body = options.body;
+  return fetch(url, Object.assign({}, options, req));
 }
 
 function fetchText(url, options, timeout) {
@@ -22,7 +36,7 @@ function fetchJson(url, options, timeout) {
 }
 
 function fetchWithRetry(url, options, retries, timeout) {
-  if (!retries) retries = 2;
+  if (retries === undefined || retries === null) retries = 2;
   return fetchText(url, options, timeout)
     .catch(function(e) {
       if (retries <= 0) throw e;

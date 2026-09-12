@@ -278,13 +278,14 @@ export async function resolveLulusStream(embedUrl) {
 export async function resolveUqloadStream(embedUrl) {
   try {
     const origin = getUrlOrigin(embedUrl);
+    // Uqload rejects requests carrying a foreign Referer ("Video embed restricted
+    // for this domain"), so fetch without Referer like a no-referrer iframe.
     const html = await fetchWithRetry(embedUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0',
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
         'Upgrade-Insecure-Requests': '1',
-        Referer: origin + '/',
       },
     });
 

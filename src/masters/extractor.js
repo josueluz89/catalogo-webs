@@ -209,14 +209,88 @@ function getPageContent(pageUrl, mediaType, targetType, season, episode, media) 
   return getPlayPage(pageUrl);
 }
 
+function getPlayerLangs(pageUrl, playHtml) {
+  var pidMatch = playHtml.match(/_gnrdPid\s*=\s*(\d+)/);
+  var tokMatch = playHtml.match(/_gnrdTok\s*=\s*"([^"]+)"/);
+  if (pidMatch && tokMatch) {
+    var apiUrl = MAIN_URL + '/wp-json/gnrd/v1/player?id=' + pidMatch[1] + '&t=' + encodeURIComponent(tokMatch[1]);
+    return fetchJson(apiUrl, {
+      headers: { Referer: pageUrl }
+    })
+      .then(function(raw) { return gnrdUnpack(raw && raw.p); })
+      .then(function(d) { return (d && d.langs) || []; })
+      .catch(function() { return legacyLangs(playHtml); });
+  }
+  return Promise.resolve(legacyLangs(playHtml));
+}
+
+function legacyLangs(playHtml) {
+  try {
+    var regex = /var\s+(_gnpv_ep_langs|_gd)\s*=\s*(\[.*?\]);/;
+    var match = regex.exec(playHtml);
+    if (!match) return [];
+    return JSON.parse(match[2]);
+  } catch (e) { return []; }
+}
+
+function gnrdUnpack(s) {
+  try {
+    if (typeof s !== 'string' || !s) return [];
+    var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+    var str = s.replace(/=+$/, '');
+    var bytes = [];
+    var bs = 0, bc = 0, i, idx;
+    for (i = 0; i < str.length; i++) {
+      idx = chars.indexOf(str.charAt(i));
+      if (idx === -1) continue;
+      bs = bc % 4 ? bs * 64 + idx : idx;
+      if (bc++ % 4) bytes.push(255 & (bs >> ((-2 * bc) & 6)));
+    }
+    var k = [103, 78, 55, 100];
+    for (i = 0; i < bytes.length; i++) bytes[i] = bytes[i] ^ k[i & 3];
+    return JSON.parse(utf8DecodeBytes(bytes));
+  } catch (e) { return []; }
+}
+
+function utf8DecodeBytes(bytes) {
+  var out = '', i = 0, c, c2, c3, cp;
+  while (i < bytes.length) {
+    c = bytes[i++];
+    if (c < 128) { out += String.fromCharCode(c); continue; }
+    if ((c & 0xE0) === 0xC0 && i < bytes.length) {
+      c2 = bytes[i++];
+      out += String.fromCharCode(((c & 31) << 6) | (c2 & 63));
+      continue;
+    }
+    if ((c & 0xF0) === 0xE0 && i + 1 < bytes.length) {
+      c2 = bytes[i++]; c3 = bytes[i++];
+      out += String.fromCharCode(((c & 15) << 12) | ((c2 & 63) << 6) | (c3 & 63));
+      continue;
+    }
+    if ((c & 0xF8) === 0xF0 && i + 2 < bytes.length) {
+      c2 = bytes[i++]; c3 = bytes[i++]; var c4 = bytes[i++];
+      cp = ((c & 7) << 18) | ((c2 & 63) << 12) | ((c3 & 63) << 6) | (c4 & 63);
+      cp -= 0x10000;
+      out += String.fromCharCode(0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF));
+      continue;
+    }
+    out += '\uFFFD';
+  }
+  return out;
+}
+
 function getPlayPage(pageUrl) {
   return fetchText(pageUrl, {
     headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' }
   })
     .then(function(playHtml) {
-      var regex = /var\s+(_gnpv_ep_langs|_gd)\s*=\s*(\[.*\]);/;
-      var match = regex.exec(playHtml);
-      if (!match) return [];
+      return getPlayerLangs(pageUrl, playHtml).then(function(langs) {
+        return buildStreamsFromLangs(pageUrl, playHtml, langs);
+      });
+    });
+}
+
+function buildStreamsFromLangs(pageUrl, playHtml, langs) {
 
       var resolvePath = null, authParam = null;
       var resolveMatch = playHtml.match(/var\s+RESOLVE\s*=\s*'([^']*)'\s*,\s*AUTH\s*=\s*'([^']*)'/);
@@ -225,9 +299,8 @@ function getPlayPage(pageUrl) {
         authParam = resolveMatch[2];
       }
 
-      var langs;
-      try { langs = JSON.parse(match[2]); } catch (e) { return []; }
       var streams = [];
+      if (!langs || !langs.length) return streams;
 
       var promises = [];
       for (var l = 0; l < langs.length; l++) {
@@ -296,5 +369,4 @@ function getPlayPage(pageUrl) {
         return Promise.all(promises).then(function() { return streams; });
       }
       return streams;
-    });
 }
