@@ -1,6 +1,6 @@
 /**
  * _template - Built from src/_template/
- * Generated: 2026-09-12T01:50:33.974Z
+ * Generated: 2026-09-12T01:54:47.841Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -45,7 +45,7 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// src/_template/extractor.js
+// _template/extractor.js
 var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
 function extractStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
@@ -53,7 +53,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
   });
 }
 
-// src/_template/index.js
+// _template/index.js
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {

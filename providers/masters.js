@@ -1,6 +1,6 @@
 /**
  * masters - Built from src/masters/
- * Generated: 2026-09-12T01:50:33.950Z
+ * Generated: 2026-09-12T01:54:47.812Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -42,7 +42,7 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// src/shared/http.js
+// shared/http.js
 var FETCH_TIMEOUT = 2e4;
 function fetchWithTimeout(url, options, timeout) {
   if (!options)
@@ -102,7 +102,7 @@ function fetchWithRetry(url, options, retries, timeout) {
   });
 }
 
-// src/shared/quality.js
+// shared/quality.js
 var KNOWN_QUALITY = {
   vimeos: { h: "720p", n: "480p" },
   goodstream: { x: "1080p", h: "720p", n: "480p", l: "360p" },
@@ -179,7 +179,7 @@ function detectQualityFromM3U8(url) {
   });
 }
 
-// src/shared/voe.js
+// shared/voe.js
 function base64Decode(input) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
   let str = input.replace(/=+$/, "");
@@ -292,7 +292,7 @@ function resolveVoeStream(embedUrl) {
   });
 }
 
-// src/shared/embedResolvers.js
+// shared/embedResolvers.js
 function getUrlOrigin(url) {
   if (!url)
     return "";
@@ -646,7 +646,7 @@ function getEmbedResolver(url) {
   return null;
 }
 
-// src/masters/extractor.js
+// masters/extractor.js
 var TMDB_API_KEY = "1f54bd990f1cdfb230adb312546d765d";
 var MAIN_URL = "https://ww3.gnulahd.nu";
 function normalizeText(text) {
@@ -1030,10 +1030,25 @@ function buildStreamsFromLangs(pageUrl, playHtml, langs) {
   return streams;
 }
 
-// src/masters/index.js
+// masters/index.js
+function withTimeout(promise, ms) {
+  if (typeof setTimeout === "undefined")
+    return promise;
+  return Promise.race([
+    promise,
+    new Promise(function(res) {
+      setTimeout(function() {
+        res([]);
+      }, ms);
+    })
+  ]);
+}
 function getStreams(tmdbId, mediaType, season, episode) {
-  return extractStreams(tmdbId, mediaType, season, episode).catch(function() {
-    return [];
-  });
+  return withTimeout(
+    extractStreams(tmdbId, mediaType, season, episode).catch(function() {
+      return [];
+    }),
+    4e4
+  );
 }
 module.exports = { getStreams };
