@@ -309,7 +309,65 @@ export async function resolveUqloadStream(embedUrl) {
   }
 }
 
+export async function resolveYourUploadStream(embedUrl) {
+  try {
+    const html = await fetchWithRetry(embedUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        Referer: 'https://www.yourupload.com/',
+      },
+    });
+    // og:video holds the direct mp4 (vidcache.net, follows 302 to play host).
+    const m = html.match(/<meta[^>]*property="og:video"[^>]*content="([^"]+)"/i) ||
+              html.match(/(https?:[^"'<>\s]+\.mp4[^"'<>\s]*)/i);
+    if (!m) return null;
+    const url = (m[1] || m[0]);
+    if (url.indexOf('http') !== 0) return null;
+    return {
+      url,
+      quality: '720p',
+      headers: { Referer: 'https://www.yourupload.com/' },
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function resolveOkRuStream(embedUrl) {
+  try {
+    const html = await fetchWithRetry(embedUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'es-MX,es;q=0.9,en;q=0.8',
+        Referer: 'https://ok.ru/',
+      },
+    });
+
+    // flashvars metadata is HTML-escaped JSON: &quot;hlsManifestUrl&quot;:&quot;URL&quot;
+    // with \u0026 for & inside the URL.
+    let m = html.match(/hlsManifestUrl(?:&quot;|"):(?:&quot;|")([^"&]+?)(?:&quot;|")/);
+    if (!m) return null;
+    const url = m[1].replace(/\\u0026/gi, '&').replace(/\\/g, '');
+    if (url.indexOf('http') !== 0) return null;
+    return {
+      url,
+      quality: '720p',
+      headers: {
+        Referer: 'https://ok.ru/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      },
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 export function getEmbedResolver(url) {
+  if (url.includes('ok.ru')) {
+    return resolveOkRuStream;
+  }
   if (url.includes('voe.sx') || url.includes('cloudwindow-route.com')) {
     return resolveVoeStream;
   }
@@ -332,6 +390,9 @@ export function getEmbedResolver(url) {
   }
   if (url.includes('luluvid') || url.includes('lulus') || url.includes('lulu')) {
     return resolveLulusStream;
+  }
+  if (url.includes('yourupload')) {
+    return resolveYourUploadStream;
   }
   if (url.includes('uqload')) {
     return resolveUqloadStream;

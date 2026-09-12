@@ -64,6 +64,48 @@
       "contentLanguage": [
         "es"
       ]
+    },
+    {
+      "id": "cinecalidad",
+      "name": "CineCalidad",
+      "description": "Películas y series en latino desde CineCalidad (VOE, StreamWish, FileMoon).",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/cinecalidad.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=cinecalidad.ec&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "cuevana",
+      "name": "Cuevana",
+      "description": "Películas y series en latino vía API de Cuevana.",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/cuevana.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=cuevana.gs&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
     }
   ]
 }
