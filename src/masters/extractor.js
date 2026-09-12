@@ -14,6 +14,23 @@ function normalizeText(text) {
     .replace(/\s+/g, ' ')
     .trim();
 }
+var STOPWORDS = { y: 1, de: 1, la: 1, el: 1, los: 1, las: 1, un: 1, una: 1, del: 1, al: 1, e: 1, u: 1, o: 1, en: 1, con: 1, por: 1, para: 1, the: 1, a: 1, an: 1, of: 1, and: 1, to: 1, in: 1, on: 1, vs: 1 };
+function searchWords(media) {
+  var all = normalizeText((media.originalTitle || '') + ' ' + (media.title || ''));
+  var words = all.replace(/[^a-z0-9]/g, ' ').split(' ').filter(Boolean);
+  var unique = {}, out = [];
+  for (var i = 0; i < words.length; i++) {
+    var w = words[i];
+    if (w.length < 3 || STOPWORDS[w] || unique[w]) continue;
+    unique[w] = true;
+    out.push(w);
+  }
+  out.sort(function(a, b) { return b.length - a.length; });
+  return out.slice(0, 3);
+}
+function slugify(text) {
+  return stripAccents((text || '').toLowerCase()).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').trim();
+}
 
 function getServerLabel(url) {
   if (url.indexOf('voe.sx') !== -1 || url.indexOf('tubeless') !== -1 || url.indexOf('simpulum') !== -1 ||
@@ -191,9 +208,62 @@ export function extractStreams(tmdbId, mediaType, season, episode) {
           });
       }
 
+      function trySlugProbe() {
+        var slugs = [];
+        var seen = {};
+        [media.title, media.originalTitle].forEach(function(t) {
+          var s = slugify(t);
+          if (s && !seen[s]) { seen[s] = true; slugs.push(s); }
+        });
+        var chain = Promise.resolve(null);
+        slugs.forEach(function(slug) {
+          chain = chain.then(function(found) {
+            if (found) return found;
+            var url = MAIN_URL + '/ver/' + slug + '/';
+            return fetchText(url, { headers: { Referer: MAIN_URL + '/' } })
+              .then(function(html) {
+                if (html && html.indexOf('_gnrdPid') !== -1) return { url: url, type: 'movie' };
+                return null;
+              })
+              .catch(function() { return null; });
+          });
+        });
+        return chain;
+      }
+
+      function tryWordSearch() {
+        var words = searchWords(media);
+        if (!words.length) return Promise.resolve(null);
+        var chain = Promise.resolve();
+        var savedBestTvScore = bestTvScore, savedBestMovieScore = bestMovieScore;
+        var savedBestTvUrl = bestTvUrl, savedBestMovieUrl = bestMovieUrl;
+        // Try each distinctive word as separate search
+        words.forEach(function(w) {
+          chain = chain.then(function() {
+            return searchSite(w).then(function(cands) {
+              for (var i = 0; i < cands.length; i++) scoreCandidate(cands[i]);
+            });
+          });
+        });
+        return chain.then(function() {
+          var t = selectTarget();
+          if (t && (bestMovieScore > savedBestMovieScore || bestTvScore > savedBestTvScore)) return t;
+          if (t && (bestMovieScore >= 15 || bestTvScore >= 15)) return t;
+          return null;
+        });
+      }
+
       return doSearch().then(function(target) {
-        if (!target) return [];
-        return getPageContent(target.url, tmdbType, target.type, season, episode, media);
+        if (target) return getPageContent(target.url, tmdbType, target.type, season, episode, media);
+        // Fallback 1: word-level search (avengers -> vengadores via infinity/war)
+        return tryWordSearch().then(function(wordTarget) {
+          if (wordTarget) return getPageContent(wordTarget.url, tmdbType, wordTarget.type, season, episode, media);
+          // Fallback 2: direct slug probe (vengadores-infinity-war)
+          return trySlugProbe().then(function(slugTarget) {
+            if (slugTarget) return getPageContent(slugTarget.url, tmdbType, slugTarget.type, season, episode, media);
+            return [];
+          });
+        });
       });
     })
     .catch(function(err) {
