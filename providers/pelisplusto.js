@@ -1,6 +1,6 @@
 /**
  * pelisplusto - Built from src/pelisplusto/
- * Generated: 2026-09-23T16:20:53.835Z
+ * Generated: 2026-09-23T16:39:09.550Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -386,17 +386,32 @@ function mapDomain(url) {
 function resolveHLSWishStream(embedUrl) {
   return __async(this, null, function* () {
     try {
-      const targetUrl = mapDomain(embedUrl).replace("/e/", "/v/");
-      const origin = getUrlOrigin(targetUrl);
-      const html = yield fetchWithRetry(targetUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          Referer: "https://embed69.org/",
-          Origin: "https://embed69.org",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "es-MX,es;q=0.9"
+      const base = mapDomain(embedUrl);
+      const origin0 = getUrlOrigin(base);
+      const headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        Referer: "https://embed69.org/",
+        Origin: "https://embed69.org",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "es-MX,es;q=0.9"
+      };
+      const candidates = [base];
+      const vVariant = base.replace("/e/", "/v/");
+      if (vVariant !== base)
+        candidates.push(vVariant);
+      let html = null;
+      let origin = origin0;
+      for (const u of candidates) {
+        try {
+          html = yield fetchWithRetry(u, { headers }, 1);
+          origin = getUrlOrigin(u);
+          break;
+        } catch (e) {
+          html = null;
         }
-      });
+      }
+      if (!html)
+        return null;
       const fileMatch = html.match(/file\s*:\s*["']([^"']+)["']/i);
       if (fileMatch) {
         let fileUrl = fileMatch[1];

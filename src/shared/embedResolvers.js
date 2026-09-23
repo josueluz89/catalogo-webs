@@ -105,17 +105,29 @@ export function mapDomain(url) {
 
 export async function resolveHLSWishStream(embedUrl) {
   try {
-    const targetUrl = mapDomain(embedUrl).replace('/e/', '/v/');
-    const origin = getUrlOrigin(targetUrl);
-    const html = await fetchWithRetry(targetUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        Referer: 'https://embed69.org/',
-        Origin: 'https://embed69.org',
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'es-MX,es;q=0.9',
-      },
-    });
+    const base = mapDomain(embedUrl);
+    const origin0 = getUrlOrigin(base);
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      Referer: 'https://embed69.org/',
+      Origin: 'https://embed69.org',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'es-MX,es;q=0.9',
+    };
+    // hgplaycdn y espejos solo sirven /e/ (/v/ da 404): probar original primero.
+    const candidates = [base];
+    const vVariant = base.replace('/e/', '/v/');
+    if (vVariant !== base) candidates.push(vVariant);
+    let html = null;
+    let origin = origin0;
+    for (const u of candidates) {
+      try {
+        html = await fetchWithRetry(u, { headers }, 1);
+        origin = getUrlOrigin(u);
+        break;
+      } catch (e) { html = null; }
+    }
+    if (!html) return null;
 
     const fileMatch = html.match(/file\s*:\s*["']([^"']+)["']/i);
     if (fileMatch) {
