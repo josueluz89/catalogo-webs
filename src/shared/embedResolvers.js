@@ -511,7 +511,7 @@ export function getEmbedResolver(url) {
   }
   if (url.includes('hlswish') || url.includes('streamwish') || url.includes('vibuxer') ||
       url.includes('strwish') || url.includes('hglink') || url.includes('ghbrisk') ||
-      url.includes('premilkyway')) {
+      url.includes('premilkyway') || url.includes('hgplaycdn')) {
     return resolveHLSWishStream;
   }
   if (url.includes('vidhide') || url.includes('dintezuvio') || url.includes('minochinos') ||

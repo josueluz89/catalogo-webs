@@ -1,11 +1,11 @@
 {
   "name": "Masters Repo",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "scrapers": [
     {
       "id": "masters",
       "name": "Masters (GnulaHD)",
-      "description": "Scraper de GnulaHD que proporciona enlaces de películas y series en Latino, Castellano y Subtitulado.",
+      "description": "DESHABILITADO 2026-09-23: gnulahd.nu y ww3 devuelven 502/timeout. Scraper de GnulaHD que proporciona enlaces de películas y series en Latino, Castellano y Subtitulado.",
       "version": "1.8.0",
       "author": "Masters",
       "supportedTypes": [
@@ -13,7 +13,7 @@
         "tv"
       ],
       "filename": "providers/masters.js",
-      "enabled": true,
+      "enabled": false,
       "formats": [
         "mp4",
         "mkv"
@@ -47,7 +47,7 @@
     {
       "id": "fanpelis",
       "name": "Fanpelis",
-      "description": "Películas y series en latino vía API de Fanpelis (VOE, StreamWish, FileMoon).",
+      "description": "DESHABILITADO 2026-09-23: fanpelis.to no responde (timeout). Películas y series en latino vía API de Fanpelis (VOE, StreamWish, FileMoon).",
       "version": "1.0.0",
       "author": "Masters",
       "supportedTypes": [
@@ -55,7 +55,7 @@
         "tv"
       ],
       "filename": "providers/fanpelis.js",
-      "enabled": true,
+      "enabled": false,
       "formats": [
         "m3u8",
         "mp4"
@@ -68,7 +68,7 @@
     {
       "id": "cinecalidad",
       "name": "CineCalidad",
-      "description": "Películas y series en latino desde CineCalidad (VOE, StreamWish, FileMoon).",
+      "description": "DESHABILITADO 2026-09-23: cinecalidad.ec/.to sin respuesta. Películas y series en latino desde CineCalidad (VOE, StreamWish, FileMoon).",
       "version": "1.0.0",
       "author": "Masters",
       "supportedTypes": [
@@ -76,7 +76,7 @@
         "tv"
       ],
       "filename": "providers/cinecalidad.js",
-      "enabled": true,
+      "enabled": false,
       "formats": [
         "m3u8",
         "mp4"
@@ -89,7 +89,7 @@
     {
       "id": "cuevana",
       "name": "Cuevana",
-      "description": "Películas y series en latino vía API de Cuevana.",
+      "description": "Películas y series en latino vía wv3.cuevana3.eu (verificado 2026-09-23: Dune2 3 streams).",
       "version": "1.0.0",
       "author": "Masters",
       "supportedTypes": [
@@ -110,14 +110,14 @@
     {
       "id": "lacartoons",
       "name": "LaCartoons",
-      "description": "Series animadas y caricaturas clasicas en latino desde lacartoons.com (Cartoon Network, Nickelodeon, Disney...) via cubeembed/rpmvid.",
+      "description": "DESHABILITADO 2026-09-23: lacartoons.com con timeout (0 bytes). Series animadas y caricaturas clasicas en latino desde lacartoons.com (Cartoon Network, Nickelodeon, Disney...) via cubeembed/rpmvid.",
       "version": "1.0.0",
       "author": "Masters",
       "supportedTypes": [
         "tv"
       ],
       "filename": "providers/lacartoons.js",
-      "enabled": true,
+      "enabled": false,
       "formats": [
         "m3u8",
         "mp4"
