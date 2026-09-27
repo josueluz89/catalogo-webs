@@ -4,6 +4,7 @@
  */
 
 import { extractStreams } from './extractor.js';
+import { withWorkingStreams } from '../shared/validate.js';
 
 /**
  * Main function called by Nuvio
@@ -16,8 +17,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     try {
         console.log(`[Template] Request: ${mediaType} ${tmdbId}`);
 
-        // Call your extraction logic
-        const streams = await extractStreams(tmdbId, mediaType, season, episode);
+        // Call your extraction logic, then keep only working links (best first)
+        const streams = await withWorkingStreams(
+            extractStreams(tmdbId, mediaType, season, episode)
+        );
 
         return streams;
     } catch (error) {
