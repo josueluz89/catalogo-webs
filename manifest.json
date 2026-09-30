@@ -1,6 +1,6 @@
 {
   "name": "Masters Repo",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "scrapers": [
     {
       "id": "masters",
@@ -103,26 +103,6 @@
         "mp4"
       ],
       "logo": "https://www.google.com/s2/favicons?domain=cuevana.gs&sz=128",
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
-      "id": "lacartoons",
-      "name": "LaCartoons",
-      "description": "Series animadas y caricaturas clasicas en latino desde lacartoons.com (Cartoon Network, Nickelodeon, Disney...) via cubeembed/rpmvid. Solo entrega enlaces verificados como funcionales.",
-      "version": "1.1.0",
-      "author": "Masters",
-      "supportedTypes": [
-        "tv"
-      ],
-      "filename": "providers/lacartoons.js",
-      "enabled": true,
-      "formats": [
-        "m3u8",
-        "mp4"
-      ],
-      "logo": "https://www.google.com/s2/favicons?domain=lacartoons.com&sz=128",
       "contentLanguage": [
         "es"
       ]
