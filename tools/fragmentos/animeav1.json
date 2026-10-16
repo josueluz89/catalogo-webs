@@ -1,0 +1,15 @@
+[
+  {
+    "id": "animeav1",
+    "name": "AnimeAV1",
+    "description": "Anime (y sus películas) en latino y subtitulado desde animeav1.com.",
+    "version": "1.0.0",
+    "author": "Masters",
+    "supportedTypes": ["movie", "tv"],
+    "filename": "providers/animeav1.js",
+    "enabled": true,
+    "formats": ["m3u8", "mp4"],
+    "logo": "https://www.google.com/s2/favicons?domain=animeav1.com&sz=128",
+    "contentLanguage": ["es"]
+  }
+]

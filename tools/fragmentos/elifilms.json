@@ -1,0 +1,15 @@
+[
+  {
+    "id": "elifilms",
+    "name": "EliFilms",
+    "description": "Películas y series en latino y subtitulado desde allcalidad.re (API REST /api/rest/: search + episodes + player). Portado desde latinuvio a QuickJS y verificado en el arnés del runtime: 1 stream en Duna: Parte dos y 3 en The Boys S3E1, solo latino/subtitulado.",
+    "version": "1.0.0",
+    "author": "Masters",
+    "supportedTypes": ["movie", "tv"],
+    "filename": "providers/elifilms.js",
+    "enabled": true,
+    "formats": ["m3u8", "mp4"],
+    "logo": "https://www.google.com/s2/favicons?domain=allcalidad.re&sz=128",
+    "contentLanguage": ["es"]
+  }
+]

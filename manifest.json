@@ -1,24 +1,255 @@
 {
   "name": "Masters Repo",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "scrapers": [
     {
-      "id": "masters",
-      "name": "Masters (GnulaHD)",
-      "description": "DESHABILITADO 2026-09-23: gnulahd.nu y ww3 devuelven 502/timeout. Scraper de GnulaHD que proporciona enlaces de películas y series en Latino, Castellano y Subtitulado.",
-      "version": "1.8.0",
+      "id": "allpeliculasse",
+      "name": "AllPeliculas",
+      "description": "Películas y series en latino y subtitulado desde allpeliculas.la (API interna /wp-api/v1: búsqueda + player). Portado desde latinuvio a QuickJS y verificado en el arnés del runtime: 1 stream en Duna: Parte dos y 3 en The Boys S3E1, con los bloques de español de España descartados antes de resolver.",
+      "version": "1.0.0",
       "author": "Masters",
       "supportedTypes": [
         "movie",
         "tv"
       ],
-      "filename": "providers/masters.js",
-      "enabled": false,
+      "filename": "providers/allpeliculasse.js",
+      "enabled": true,
       "formats": [
-        "mp4",
-        "mkv"
+        "m3u8",
+        "mp4"
       ],
-      "logo": "https://www.google.com/s2/favicons?domain=gnulahd.nu&sz=128",
+      "logo": "https://www.google.com/s2/favicons?domain=allpeliculas.la&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "animeav1",
+      "name": "AnimeAV1",
+      "description": "Anime (y sus películas) en latino y subtitulado desde animeav1.com.",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/animeav1.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=animeav1.com&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "cinemitas",
+      "name": "Cinemitas",
+      "description": "Películas y series en latino desde cinemitas.org (Uqload). Trae latino y castellano: el provider descarta el castellano y deja solo latino/sub.",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/cinemitas.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=cinemitas.org&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "cuevana",
+      "name": "Cuevana",
+      "description": "Películas y series en latino vía wv3.cuevana3.eu (verificado 2026-09-23: Dune2 3 streams).",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/cuevana.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=cuevana.gs&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "elifilms",
+      "name": "EliFilms",
+      "description": "Películas y series en latino y subtitulado desde allcalidad.re (API REST /api/rest/: search + episodes + player). Portado desde latinuvio a QuickJS y verificado en el arnés del runtime: 1 stream en Duna: Parte dos y 3 en The Boys S3E1, solo latino/subtitulado.",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/elifilms.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=allcalidad.re&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "entrepeliculasyseries",
+      "name": "EntrePeliculasySeries",
+      "description": "Películas y series en latino y subtitulado desde entrepeliculasyseries.nz.",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/entrepeliculasyseries.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=entrepeliculasyseries.nz&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "hackstore2",
+      "name": "HackStore",
+      "description": "Películas y series en latino desde hackstore2.com (Vimeos, StreamWish, VOE). Solo latino y subtitulado.",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/hackstore2.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=hackstore2.com&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "henaojara",
+      "name": "HenaoJara",
+      "description": "Anime y películas en latino y subtitulado desde ww1.henaojara.net.",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/henaojara.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=ww1.henaojara.net&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "megadedeoficial",
+      "name": "MegaDede",
+      "description": "Películas y series en latino y subtitulado desde megadede.mobi (página /vidurl/ con PoW SHA-256 + dataLink cifrado en AES-256-CBC). Portado desde latinuvio a QuickJS (crypto-js en vez de require('crypto')) y verificado en el arnés del runtime: 4 streams (Lat + Sub) en Duna: Parte dos y 2 en The Boys S3E1; el bloque ESP de la página se descarta antes de descifrar.",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/megadedeoficial.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=megadede.mobi&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "monoschinos",
+      "name": "MonosChinos",
+      "description": "Anime en latino y subtitulado desde vww.monoschinos2.net.",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/monoschinos.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=vww.monoschinos2.net&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "pelis182",
+      "name": "Pelis182",
+      "description": "Series en latino desde pelis182.net (Streamtape y compañía). Ojo: hoy solo devuelve streams en series, no en películas. Solo latino y subtitulado.",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/pelis182.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=pelis182.net&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "pelispanda",
+      "name": "PelisPanda",
+      "description": "Películas y series en latino desde pelispanda.org (API wpreact; Vimeos, VOE, StreamWish). Solo latino y subtitulado.",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/pelispanda.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=pelispanda.org&sz=128",
       "contentLanguage": [
         "es"
       ]
@@ -40,6 +271,48 @@
         "mp4"
       ],
       "logo": "https://www.google.com/s2/favicons?domain=pelisplushd.bz&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "vimeus",
+      "name": "Vimeus",
+      "description": "Películas y series en latino desde vimeus.com (Vimeos). Solo español latino y subtitulado: se descartan los enlaces de España.",
+      "version": "1.0.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/vimeus.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=vimeus.com&sz=128",
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "masters",
+      "name": "Masters (GnulaHD)",
+      "description": "DESHABILITADO 2026-09-23: gnulahd.nu y ww3 devuelven 502/timeout. Scraper de GnulaHD que proporciona enlaces de películas y series en Latino, Castellano y Subtitulado.",
+      "version": "1.8.0",
+      "author": "Masters",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/masters.js",
+      "enabled": false,
+      "formats": [
+        "mp4",
+        "mkv"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=gnulahd.nu&sz=128",
       "contentLanguage": [
         "es"
       ]
@@ -82,27 +355,6 @@
         "mp4"
       ],
       "logo": "https://www.google.com/s2/favicons?domain=cinecalidad.ec&sz=128",
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
-      "id": "cuevana",
-      "name": "Cuevana",
-      "description": "Películas y series en latino vía wv3.cuevana3.eu (verificado 2026-09-23: Dune2 3 streams).",
-      "version": "1.0.0",
-      "author": "Masters",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/cuevana.js",
-      "enabled": true,
-      "formats": [
-        "m3u8",
-        "mp4"
-      ],
-      "logo": "https://www.google.com/s2/favicons?domain=cuevana.gs&sz=128",
       "contentLanguage": [
         "es"
       ]

@@ -1,0 +1,15 @@
+[
+  {
+    "id": "henaojara",
+    "name": "HenaoJara",
+    "description": "Anime y películas en latino y subtitulado desde ww1.henaojara.net.",
+    "version": "1.0.0",
+    "author": "Masters",
+    "supportedTypes": ["movie", "tv"],
+    "filename": "providers/henaojara.js",
+    "enabled": true,
+    "formats": ["m3u8", "mp4"],
+    "logo": "https://www.google.com/s2/favicons?domain=ww1.henaojara.net&sz=128",
+    "contentLanguage": ["es"]
+  }
+]

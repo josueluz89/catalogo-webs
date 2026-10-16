@@ -1,0 +1,15 @@
+[
+  {
+    "id": "monoschinos",
+    "name": "MonosChinos",
+    "description": "Anime en latino y subtitulado desde vww.monoschinos2.net.",
+    "version": "1.0.0",
+    "author": "Masters",
+    "supportedTypes": ["movie", "tv"],
+    "filename": "providers/monoschinos.js",
+    "enabled": true,
+    "formats": ["m3u8", "mp4"],
+    "logo": "https://www.google.com/s2/favicons?domain=vww.monoschinos2.net&sz=128",
+    "contentLanguage": ["es"]
+  }
+]

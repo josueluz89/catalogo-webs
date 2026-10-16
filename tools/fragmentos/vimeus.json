@@ -1,0 +1,23 @@
+[
+  {
+    "id": "vimeus",
+    "name": "Vimeus",
+    "description": "Películas y series en latino desde vimeus.com (Vimeos). Solo español latino y subtitulado: se descartan los enlaces de España.",
+    "version": "1.0.0",
+    "author": "Masters",
+    "supportedTypes": [
+      "movie",
+      "tv"
+    ],
+    "filename": "providers/vimeus.js",
+    "enabled": true,
+    "formats": [
+      "m3u8",
+      "mp4"
+    ],
+    "logo": "https://www.google.com/s2/favicons?domain=vimeus.com&sz=128",
+    "contentLanguage": [
+      "es"
+    ]
+  }
+]

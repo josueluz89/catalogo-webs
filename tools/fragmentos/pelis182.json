@@ -1,0 +1,23 @@
+[
+  {
+    "id": "pelis182",
+    "name": "Pelis182",
+    "description": "Series en latino desde pelis182.net (Streamtape y compañía). Ojo: hoy solo devuelve streams en series, no en películas. Solo latino y subtitulado.",
+    "version": "1.0.0",
+    "author": "Masters",
+    "supportedTypes": [
+      "movie",
+      "tv"
+    ],
+    "filename": "providers/pelis182.js",
+    "enabled": true,
+    "formats": [
+      "m3u8",
+      "mp4"
+    ],
+    "logo": "https://www.google.com/s2/favicons?domain=pelis182.net&sz=128",
+    "contentLanguage": [
+      "es"
+    ]
+  }
+]
