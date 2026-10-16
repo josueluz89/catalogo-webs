@@ -1,5 +1,6 @@
 import { fetchText, fetchJson } from '../shared/http.js';
 import { getEmbedResolver, mapDomain } from '../shared/embedResolvers.js';
+import { resolveEmbed69Servers } from './embed69.js';
 
 const TMDB_API_KEY = '1f54bd990f1cdfb230adb312546d765d';
 const MAIN_URL = 'https://pelisplushd.bz';
@@ -167,43 +168,42 @@ function getServersFromDetail(html) {
   });
 }
 
-function unwrapEmbed69(src) {
-  // PelisPlusHD routes most servers through embed69. The /f/ and /video/ pages
-  // are PoW/bot protected and cannot be scraped server-side, but uqlink.php
-  // unwraps to the direct host iframe which our resolvers handle.
-  if (src.indexOf('embed69.org/uqlink.php') === -1) return Promise.resolve(null);
-  return fetchText(src, { headers: { Referer: MAIN_URL + '/' } })
-    .then(function(html) {
-      var m = html.match(/<iframe\b[^>]*src="([^"]+)"[^>]*>/i);
-      if (!m) return null;
-      var isrc = m[1];
-      if (isrc.indexOf('//') === 0) isrc = 'https:' + isrc;
-      return isrc.indexOf('http') === 0 ? isrc : null;
-    })
-    .catch(function() { return null; });
+function resolverUnEmbed(embedUrl, label, lang) {
+  var fixedUrl = mapDomain(embedUrl);
+  var resolver = getEmbedResolver(fixedUrl);
+  if (!resolver) return Promise.resolve(null);
+  return resolver(fixedUrl).then(function(result) {
+    if (result && result.url) {
+      return {
+        name: 'Pelisplusto (' + label + ')',
+        title: (result.quality || 'HD') + ' · ' + lang + ' · ' + label,
+        url: result.url,
+        quality: result.quality || 'HD',
+        headers: result.headers,
+      };
+    }
+    return null;
+  }).catch(function() { return null; });
 }
 
 function resolveServers(servers) {
   var streams = [];
   var promises = servers.map(function(s) {
-    return unwrapEmbed69(s.src).then(function(unwrapped) {
-      var target = unwrapped || s.src;
-      // Skip PoW-protected embed69 pages with no direct host.
-      if (target.indexOf('embed69.org/') !== -1) return null;
-      var fixedUrl = mapDomain(target);
-      var resolver = getEmbedResolver(fixedUrl);
-      if (!resolver) return null;
-      return resolver(fixedUrl).then(function(result) {
-        if (result && result.url) {
-          streams.push({
-            name: 'Pelisplusto (' + s.label + ')',
-            title: (result.quality || 'HD') + ' · LAT · ' + s.label,
-            url: result.url,
-            quality: result.quality || 'HD',
-            headers: result.headers,
-          });
-        }
+    // PelisPlusHD trae todos sus servidores por embed69: /f/ (PoW + enlaces
+    // cifrados) y /video/ (servidores en claro). Se expanden a los embeds
+    // reales y cada uno pasa por el resolver compartido de su host.
+    if (s.src.indexOf('embed69.org/') !== -1) {
+      return resolveEmbed69Servers(s.src).then(function(targets) {
+        var inner = targets.map(function(t) {
+          return resolverUnEmbed(t.url, t.label, t.lang);
+        });
+        return Promise.all(inner).then(function(resolved) {
+          resolved.forEach(function(r) { if (r) streams.push(r); });
+        });
       }).catch(function() {});
+    }
+    return resolverUnEmbed(s.src, s.label, 'LAT').then(function(r) {
+      if (r) streams.push(r);
     });
   });
   return Promise.all(promises).then(function() { return streams; });
@@ -223,7 +223,11 @@ function getEpisodeStreams(slug, season, episode) {
     : MAIN_URL + '/serie/' + slug;
   return fetchText(basePath)
     .then(function(html) {
-      var epRegex = new RegExp('<a\\b[^>]*href="([^"]*\\/temporada\\/' + season + '\\/capitulo\\/' + episode + '(?:\\/|"|\\?)[^"]*)"[^>]*>', 'i');
+      // El grupo ([^"]*) no puede cruzar la comilla de cierre: el lookahead
+      // (?=[/"?]) evita que capitulo/1 case con capitulo/12 sin tragarse
+      // la comilla (el (?:\/|"|\?) anterior se comía la comilla y seguía
+      // hasta la siguiente, dejando una URL con basura como '.../1"\n class=').
+      var epRegex = new RegExp('<a\\b[^>]*href="([^"]*\\/temporada\\/' + season + '\\/capitulo\\/' + episode + '(?=[\\/"?])[^"]*)"[^>]*>', 'i');
       var m = epRegex.exec(html);
       var epUrl = m ? m[1] : (basePath + '/temporada/' + season + '/capitulo/' + episode);
       if (epUrl.indexOf('http') !== 0) epUrl = MAIN_URL + (epUrl.charAt(0) === '/' ? '' : '/') + epUrl;

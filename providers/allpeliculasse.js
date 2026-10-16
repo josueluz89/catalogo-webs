@@ -1,6 +1,6 @@
 /**
  * allpeliculasse - Built from src/allpeliculasse/
- * Generated: 2026-10-15T23:52:33.535Z
+ * Generated: 2026-10-16T21:45:53.004Z
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -24,7 +24,7 @@ var __async = (__this, __arguments, generator) => {
 };
 
 // src/shared/http.js
-var FETCH_TIMEOUT = 12e3;
+var FETCH_TIMEOUT = 2e4;
 function fetchWithTimeout(url, options, timeout) {
   if (!options)
     options = {};
@@ -242,7 +242,6 @@ var ESPEJOS_WISH = [
   "https://hanerix.com/e/",
   "https://embedwish.com/e/",
   "https://hglink.to/e/",
-  "https://awish.pro/e/",
   "https://strwish.com/e/"
 ];
 function resolverStreamwish(embedUrl, vencido) {
@@ -365,6 +364,8 @@ function resolverVoe(embedUrl, vencido) {
       if (html.indexOf("window.location.href") !== -1 && html.length < 2e3) {
         var rm = html.match(/window\.location\.href\s*=\s*['"]([^'"]+)['"]/i);
         if (rm) {
+          if (/megankiddifference\.com/i.test(rm[1]))
+            return null;
           try {
             var next = yield fetchText(rm[1], { headers: { "User-Agent": USER_AGENT2 } });
             if (next)
@@ -565,7 +566,7 @@ function tituloStream(calidad, etiquetaIdioma, servidor) {
 }
 
 // src/allpeliculasse/index.js
-var PRESUPUESTO_MS = 35e3;
+var PRESUPUESTO_MS = 45e3;
 function crearVencido(ms) {
   var t0 = Date.now();
   return function() {

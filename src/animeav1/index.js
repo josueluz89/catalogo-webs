@@ -6,7 +6,9 @@
 import { extraer } from './extractor.js';
 import { withWorkingStreams } from '../shared/validate.js';
 
-// Tope de tiempo del provider (40 s): la app corta a los 60 s.
+// Tope de tiempo del provider (50 s): la app corta a los 60 s. En QuickJS la
+// cadena completa (TMDB + búsqueda + 8 resolvers + validación) ronda los 44 s,
+// así que el tope anterior de 40 s la cortaba a 0 streams en cuanto algo iba lento.
 function withTimeout(promise, ms) {
   if (typeof setTimeout === 'undefined') return promise;
   return Promise.race([
@@ -35,7 +37,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
     extraer(tmdbId, tipo === 'movie' ? 'movie' : 'tv', season, episode).catch(function () {
       return [];
     }),
-    40000
+    50000
   ));
 }
 

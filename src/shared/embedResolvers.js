@@ -286,6 +286,29 @@ export async function resolveLulusStream(embedUrl) {
   }
 }
 
+export async function resolveMp4uploadStream(embedUrl) {
+  try {
+    const html = await fetchWithRetry(embedUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Referer: 'https://www.mp4upload.com/',
+      },
+    });
+    if (!html) return null;
+    const m = html.match(/player\.src\(\{\s*type:\s*"video\/mp4",\s*src:\s*"([^"]+)"/) ||
+              html.match(/type:\s*"video\/mp4",\s*src:\s*"([^"]+)"/) ||
+              html.match(/"src"\s*:\s*"(https?:[^"]+\.mp4[^"]*)"/);
+    if (!m) return null;
+    return {
+      url: m[1],
+      quality: 'HD',
+      headers: { Referer: 'https://www.mp4upload.com/' },
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 export async function resolveUqloadStream(embedUrl) {
   try {
     const origin = getUrlOrigin(embedUrl);
@@ -511,7 +534,7 @@ export function getEmbedResolver(url) {
   }
   if (url.includes('hlswish') || url.includes('streamwish') || url.includes('vibuxer') ||
       url.includes('strwish') || url.includes('hglink') || url.includes('ghbrisk') ||
-      url.includes('premilkyway') || url.includes('hgplaycdn')) {
+      url.includes('premilkyway') || url.includes('hgplaycdn') || url.includes('waaw')) {
     return resolveHLSWishStream;
   }
   if (url.includes('vidhide') || url.includes('dintezuvio') || url.includes('minochinos') ||
@@ -519,7 +542,7 @@ export function getEmbedResolver(url) {
       url.includes('dhtpre') || url.includes('vidspeeder') || url.includes('moorearn') ||
       url.includes('travid') || url.includes('vidhidehub') || url.includes('vidhidevip') ||
       url.includes('vidhidepre') || url.includes('kinoger') || url.includes('movearnpre') ||
-      url.includes('peytonepre') || url.includes('filelions')) {
+      url.includes('peytonepre') || url.includes('filelions') || url.includes('morencius')) {
     return resolveVidHideProStream;
   }
   if (url.includes('byse') || url.includes('filemoon') ||
@@ -548,6 +571,9 @@ export function getEmbedResolver(url) {
       url.includes('dood.to') || url.includes('dood.watch') || url.includes('dood.so')) {
     return resolveDoodStream;
   }
+  if (url.includes('mp4upload')) {
+    return resolveMp4uploadStream;
+  }
   return null;
 }
 
@@ -555,12 +581,13 @@ export function getServerLabel(url) {
   if (url.includes('voe.sx') || url.includes('cloudwindow')) return 'VOE';
   if (url.includes('streamwish') || url.includes('hlswish') || url.includes('vibuxer') ||
       url.includes('strwish') || url.includes('premilkyway')) return 'StreamWish';
+  if (url.includes('waaw')) return 'Waaw';
   if (url.includes('vidhide') || url.includes('dintezuvio') || url.includes('minochinos') ||
       url.includes('dramiyos') || url.includes('dhcplay') || url.includes('smoothpre') ||
       url.includes('dhtpre') || url.includes('vidspeeder') || url.includes('moorearn') ||
       url.includes('travid') || url.includes('vidhidehub') || url.includes('vidhidevip') ||
       url.includes('vidhidepre') || url.includes('kinoger') || url.includes('movearnpre') ||
-      url.includes('peytonepre') || url.includes('filelions')) return 'VidHide';
+      url.includes('peytonepre') || url.includes('filelions') || url.includes('morencius')) return 'VidHide';
   if (url.includes('byse') || url.includes('filemoon') ||
       url.includes('rapidvideo')) return 'FileMoon';
   if (url.includes('luluvid') || url.includes('lulus')) return 'Lulu';

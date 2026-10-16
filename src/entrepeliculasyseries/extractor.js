@@ -12,6 +12,7 @@
 //   cada sortedEmbeds[].link se descifra (IV = primeros 16 bytes) y sale la URL del host
 //   los hosts se resuelven con el stack de src/shared/embedResolvers.js y con el resolver
 //   local de familia vidhide/streamwish (pages con `links = {hls4...}` empaquetadas).
+//   2026-10-16: los embeds VOE se descartan antes de resolver (gate ALTCHA, ver abajo).
 
 import { fetchText } from '../shared/http.js';
 import { getEmbedResolver, getServerLabel } from '../shared/embedResolvers.js';
@@ -632,7 +633,11 @@ function filtrarIdioma(streams) {
 // flujo principal
 // ---------------------------------------------------------------------------
 
-var SERVIDORES_DESCARTADOS = ['filemoon', 'bysesukior', '1fichier', 'fireload', 'terabox'];
+var SERVIDORES_DESCARTADOS = ['filemoon', 'bysesukior', '1fichier', 'fireload', 'terabox', 'voe'];
+// 2026-10-16: 'voe' se descarta — VOE redirige a un gate ALTCHA ("Confirm you're human",
+// dominio megankiddifference.com) que no se puede pasar del lado del servidor: sus embeds
+// nunca resuelven y cada uno quemaba ~2 fetches del presupuesto. Quedan vidhide + streamwish
+// en LAT y SUB, que sí resuelven.
 
 // el resolver compartido de voe devuelve 'Unknown' cuando la URL no dice la calidad:
 // en la app queda mejor 'HD' que un literal raro

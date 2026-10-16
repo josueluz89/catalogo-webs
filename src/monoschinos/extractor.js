@@ -134,16 +134,43 @@ function getTmdbInfo(id, tipo) {
     .catch(function () { return null; });
 }
 
+function getTmdbAltTitles(id, tipo) {
+  // Titulos alternativos (el sitio usa el romaji: "Sen to Chihiro no Kamikakushi"
+  // para "El viaje de Chihiro"; TMDB lo trae como alternative_title JP Romaji).
+  // TV responde {results:[{title}]} y movie {titles:[{title}]}.
+  var url = 'https://api.themoviedb.org/3/' + tipo + '/' + id + '/alternative_titles?api_key=' + TMDB_KEY;
+  return fetchText(url, { headers: { 'User-Agent': UA } }, 10000)
+    .then(function (raw) {
+      var res = JSON.parse(raw);
+      var arr = res.titles || res.results || [];
+      var out = [];
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i] && arr[i].title && out.indexOf(arr[i].title) < 0) out.push(arr[i].title);
+      }
+      return out;
+    })
+    .catch(function () { return []; });
+}
+
 function searchSite(searchTitle) {
+  var ns = norm(searchTitle);
+  if (!ns) return Promise.resolve(null);
   var url = HOST + '/animes?buscar=' + encodeURIComponent(searchTitle);
   return fetchText(url, { headers: HEADERS }, 15000)
     .then(function (html) {
-      var ns = norm(searchTitle);
-      if (!ns) return null;
       var bloques = [];
       var re = /ficha_efecto">([\s\S]*?)<\/li>/gi;
       var m;
       while ((m = re.exec(html)) !== null) bloques.push(m[1]);
+      // El primer match por substring gana la ficha equivocada: TMDB llama a la
+      // serie "Los Caballeros del Zodiaco" y el primer resultado que contiene
+      // ese texto es la PELICULA "Legend of Sanctuary (Los Caballeros del
+      // Zodiaco: ...)", cuya lista de episodios no tiene el cap. pedido -> [].
+      // Se puntua cada candidato y gana el mas cercano al titulo buscado:
+      // exacto = 100; substring = 50 menos la diferencia de largo (la ficha
+      // correcta es la mas corta entre las que contienen el titulo).
+      var best = null;
+      var bestScore = 0;
       for (var i = 0; i < bloques.length; i++) {
         var block = bloques[i];
         var title = (block.match(/title="([^"]*)"/) || [])[1] || '';
@@ -152,11 +179,17 @@ function searchSite(searchTitle) {
         var cleanTitle = title.replace('Ver Anime', '').replace('Online Gratis', '').replace(/&quot;|&amp;|&#039;/g, '').replace(/^\s+|\s+$/g, '');
         var nct = norm(cleanTitle);
         if (!nct) continue;
-        if (nct.indexOf(ns) !== -1 || ns.indexOf(nct) !== -1) {
-          return href.replace('./', HOST + '/');
+        var score = 0;
+        if (nct === ns) score = 100;
+        else if (nct.indexOf(ns) !== -1 || ns.indexOf(nct) !== -1) {
+          score = 50 - Math.min(20, Math.floor(Math.abs(nct.length - ns.length) / 2));
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          best = href.indexOf('http') === 0 ? href : href.replace('./', HOST + '/');
         }
       }
-      return null;
+      return best ? { url: best, score: bestScore } : null;
     })
     .catch(function () { return null; });
 }
@@ -167,31 +200,42 @@ function getEpisodeUrl(seriesUrl, episode) {
       var dataI = (html.match(/data-i="([^"]+)"/) || [])[1];
       var dataU = (html.match(/data-u="([^"]+)"/) || [])[1];
       if (!dataI || !dataU) return null;
-      var body = 'acc=episodes&i=' + encodeURIComponent(dataI) + '&u=' + encodeURIComponent(dataU) + '&p=1';
-      return fetchText(HOST + '/ajax_pagination', {
-        method: 'POST',
-        headers: {
-          'User-Agent': UA,
-          'Accept': 'text/html,*/*',
-          'Accept-Language': 'es-MX,es;q=0.9',
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'X-Requested-With': 'XMLHttpRequest',
-          'Referer': seriesUrl,
-        },
-        body: body,
-      }, 15000).then(function (ajaxHtml) {
-        var targetEp = String(parseInt(episode, 10) || 1);
-        var re = /<article>([\s\S]*?)<\/article>/gi;
-        var m;
-        while ((m = re.exec(ajaxHtml)) !== null) {
-          var article = m[1];
-          var epUrl = (article.match(/href="([^"]+)"/) || [])[1] || '';
-          var alt = article.match(/alt="[^"]*episodio\s*(\d+)/i) || article.match(/alt="[^"]*capitulo\s*(\d+)/i);
-          var epNum = alt ? alt[1] : '';
-          if (epUrl && epNum === targetEp) return epUrl;
-        }
-        return null;
-      }).catch(function () { return null; });
+      var targetEp = String(parseInt(episode, 10) || 1);
+      // Episodios en orden inverso (el mas nuevo primero), 50 por pagina: el
+      // cap. 1 de una serie larga NO esta en p=1 (Saint Seiya, 114 caps, lo
+      // tiene en p=3). Se recorren paginas hasta encontrarlo o agotarlas.
+      function buscarEnPagina(p) {
+        var body = 'acc=episodes&i=' + encodeURIComponent(dataI) + '&u=' + encodeURIComponent(dataU) + '&p=' + p;
+        return fetchText(HOST + '/ajax_pagination', {
+          method: 'POST',
+          headers: {
+            'User-Agent': UA,
+            'Accept': 'text/html,*/*',
+            'Accept-Language': 'es-MX,es;q=0.9',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Referer': seriesUrl,
+          },
+          body: body,
+        }, 15000).then(function (ajaxHtml) {
+          var re = /<article>([\s\S]*?)<\/article>/gi;
+          var m;
+          var count = 0;
+          var found = null;
+          while ((m = re.exec(ajaxHtml)) !== null) {
+            count++;
+            var article = m[1];
+            var epUrl = (article.match(/href="([^"]+)"/) || [])[1] || '';
+            var alt = article.match(/alt="[^"]*episodio\s*(\d+)/i) || article.match(/alt="[^"]*capitulo\s*(\d+)/i);
+            var epNum = alt ? alt[1] : '';
+            if (epUrl && epNum === targetEp) found = epUrl;
+          }
+          if (found) return found;
+          if (count === 0 || p >= 5) return null;
+          return buscarEnPagina(p + 1);
+        }).catch(function () { return null; });
+      }
+      return buscarEnPagina(1);
     })
     .catch(function () { return null; });
 }
@@ -284,19 +328,36 @@ async function extraer(tmdbId, mediaType, season, episode, title) {
   var tipo = mediaType === 'movie' ? 'movie' : 'tv';
   if (!tmdbId && !title) return [];
 
-  var candidatos = [];
-  if (title) candidatos.push(title);
+  var candidatosMain = [];
+  if (title) candidatosMain.push(title);
   var info = await getTmdbInfo(tmdbId, tipo);
   if (info) {
-    if (info.title && candidatos.indexOf(info.title) < 0) candidatos.push(info.title);
-    if (info.originalTitle && candidatos.indexOf(info.originalTitle) < 0) candidatos.push(info.originalTitle);
+    if (info.title && candidatosMain.indexOf(info.title) < 0) candidatosMain.push(info.title);
+    if (info.originalTitle && candidatosMain.indexOf(info.originalTitle) < 0) candidatosMain.push(info.originalTitle);
   }
+  var altTitles = await getTmdbAltTitles(tmdbId, tipo);
+  var candidatosAlt = [];
+  for (var ai = 0; ai < altTitles.length && candidatosAlt.length < 9; ai++) {
+    if (candidatosMain.indexOf(altTitles[ai]) < 0 && candidatosAlt.indexOf(altTitles[ai]) < 0) candidatosAlt.push(altTitles[ai]);
+  }
+  var candidatos = candidatosMain.concat(candidatosAlt);
   if (!candidatos.length) return [];
 
   var seriesUrl = null;
+  var bestScore = -1;
   for (var ci = 0; ci < candidatos.length; ci++) {
-    seriesUrl = await searchSite(candidatos[ci]);
-    if (seriesUrl) break;
+    // Un match de titulo principal basta: los alternativos NO lo desplazan.
+    // Sin esto, el alternativo 'Saint Seiya' (100 exacto) reemplazaba la ficha
+    // buena 'Saint Seiya (Los Caballeros del Zodiaco)' (45) por la duplicada
+    // /anime/saint-seiya, cuyo cap. 1 solo trae embeds muertos (mega,
+    // zippyshare, streamtape) y el provider quedaba en 0 streams.
+    if (ci >= candidatosMain.length && bestScore > 0) break;
+    var hit = await searchSite(candidatos[ci]);
+    if (hit && hit.score > bestScore) {
+      bestScore = hit.score;
+      seriesUrl = hit.url;
+    }
+    if (bestScore >= 100) break;
   }
   if (!seriesUrl) return [];
 
@@ -308,6 +369,12 @@ async function extraer(tmdbId, mediaType, season, episode, title) {
     pageUrl = epUrl;
   } else if (tipo === 'tv') {
     return []; // sin episodio no hay nada que ver
+  } else if (tipo === 'movie') {
+    // En el sitio la pelicula vive como "episodio 1" (/ver/<slug>-episodio-1):
+    // la ficha /anime/<slug> no trae reproductores. Si no hay lista de
+    // episodios, se cae a la ficha como antes.
+    var epUrlM = await getEpisodeUrl(seriesUrl, 1);
+    if (epUrlM) pageUrl = epUrlM;
   }
   if (/castellano/i.test(pageUrl)) return [];
 

@@ -1,6 +1,6 @@
 /**
  * cinemitas - Built from src/cinemitas/
- * Generated: 2026-10-15T23:42:52.084Z
+ * Generated: 2026-10-16T21:33:10.190Z
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -425,41 +425,6 @@ function resolverVimeos(embedUrl) {
     return null;
   });
 }
-function resolverBysezoxexe(embedUrl) {
-  return __async(this, null, function* () {
-    try {
-      var html = yield pedirTexto(embedUrl, { Referer: "https://cinemitas.org/" });
-      if (!html)
-        return null;
-      var token = (html.match(/["']token["']\s*:\s*["']([^"']+)["']/) || [])[1] || (html.match(/["'](?:fileId|videoId|file_code|hash)["']\s*:\s*["']([^"']+)["']/) || [])[1] || (String(embedUrl).match(/\/([a-z0-9]{8,})$/i) || [])[1];
-      if (!token)
-        return null;
-      var origen = "https://bysezoxexe.com";
-      var candidatos = [origen + "/api/video/" + token, origen + "/api/play/" + token, origen + "/api/stream/" + token, origen + "/api/get/" + token];
-      var i;
-      for (i = 0; i < candidatos.length; i++) {
-        var t = yield pedirTexto(candidatos[i], { Referer: origen + "/" }).catch(function() {
-          return null;
-        });
-        if (!t)
-          continue;
-        var m3 = extraerM3u8(t);
-        if (m3)
-          return { url: m3, server: "Bysezoxexe", quality: "1080p", headers: { Referer: origen + "/", "User-Agent": UA } };
-        try {
-          var j = JSON.parse(t);
-          var f = j.url || j.file || j.stream_url || j.streaming_url || j.data && (j.data.url || j.data.file || j.data.streaming_url);
-          if (f && /^http/.test(f))
-            return { url: f, server: "Bysezoxexe", quality: "1080p", headers: { Referer: origen + "/", "User-Agent": UA } };
-        } catch (e2) {
-        }
-      }
-    } catch (e) {
-      console.log("[Cinemitas:Bysezoxexe] Error: " + (e && e.message));
-    }
-    return null;
-  });
-}
 function resolverAudinifer(embedUrl) {
   return __async(this, null, function* () {
     try {
@@ -489,15 +454,19 @@ function resolverAudinifer(embedUrl) {
 function resolverVidara(embedUrl) {
   return __async(this, null, function* () {
     try {
-      var html = yield pedirTexto(embedUrl, { Referer: "https://cinemitas.org/" }).catch(function() {
-        return null;
-      });
       var id = (String(embedUrl).match(/\/e\/([^/]+)/i) || [])[1] || (String(embedUrl).match(/\/player\/([^/]+)/i) || [])[1];
       if (!id)
         return null;
-      var api = "https://vidara.so/api/stream?filecode=" + encodeURIComponent(id);
-      var res = yield pedirTexto(api, { "User-Agent": UA, Referer: embedUrl, Accept: "application/json" });
-      var j = JSON.parse(res);
+      var res = yield pedir("https://vidara.so/api/stream", {
+        "User-Agent": UA,
+        Referer: embedUrl,
+        Origin: urlOrigen(embedUrl),
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      }, { metodo: "POST", cuerpo: JSON.stringify({ filecode: id }) });
+      if (!res.ok)
+        return null;
+      var j = JSON.parse(yield res.text());
       var f = j.streaming_url || j.file || j.url || j.source || j.data && (j.data.streaming_url || j.data.url || j.data.file);
       if (f && /^http/.test(f))
         return { url: f, server: "Vidara", quality: "1080p", headers: { Referer: embedUrl, "User-Agent": UA } };
@@ -511,7 +480,7 @@ function resolverEmbed(embedUrl) {
   var u = String(embedUrl || "").toLowerCase();
   if (u.indexOf("voe.sx") !== -1 || u.indexOf("/voe/") !== -1)
     return resolverVoe(embedUrl);
-  if (u.indexOf("wish") !== -1 || u.indexOf("bysezoxexe") !== -1 || u.indexOf("vibuxer") !== -1 || u.indexOf("hglink") !== -1 || u.indexOf("hanerix") !== -1)
+  if (u.indexOf("wish") !== -1 || u.indexOf("vibuxer") !== -1 || u.indexOf("hglink") !== -1 || u.indexOf("hanerix") !== -1)
     return resolverStreamwish(embedUrl);
   if (u.indexOf("vidhide") !== -1 || u.indexOf("ds2play") !== -1 || u.indexOf("do7go") !== -1 || u.indexOf("dintezuvio") !== -1)
     return resolverVidhide(embedUrl);
@@ -525,8 +494,6 @@ function resolverEmbed(embedUrl) {
     return resolverGoodstream(embedUrl);
   if (u.indexOf("vimeos") !== -1)
     return resolverVimeos(embedUrl);
-  if (u.indexOf("bysezoxexe") !== -1)
-    return resolverBysezoxexe(embedUrl);
   if (u.indexOf("audinifer") !== -1)
     return resolverAudinifer(embedUrl);
   if (u.indexOf("vidara") !== -1)
@@ -637,41 +604,28 @@ function slugify(titulo) {
 }
 function getTmdbTitles(tmdbId, tipo) {
   return __async(this, null, function* () {
-    var titleEs = null;
-    var titleOriginal = null;
-    var titleEn = null;
-    var year = null;
     var reel = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/;
-    try {
-      var res = yield fetch("https://api.themoviedb.org/3/" + tipo + "/" + tmdbId + "?api_key=" + TMDB_KEY + "&language=es-ES").then(function(r) {
+    var datos = yield Promise.all(["es-ES", "es-MX", "en-US"].map(function(idioma) {
+      return fetch("https://api.themoviedb.org/3/" + tipo + "/" + tmdbId + "?api_key=" + TMDB_KEY + "&language=" + idioma).then(function(r) {
         return r.json();
+      }).catch(function(e) {
+        console.error("[Cinemitas] TMDB " + idioma + ": " + (e && e.message));
+        return null;
       });
-      titleEs = tipo === "movie" ? res.title : res.name;
-      titleOriginal = tipo === "movie" ? res.original_title : res.original_name;
-      var fecha = tipo === "movie" ? res.release_date : res.first_air_date;
-      if (fecha)
-        year = String(fecha).split("-")[0];
-    } catch (e) {
-      console.error("[Cinemitas] TMDB es-ES: " + (e && e.message));
-    }
-    try {
-      var resMx = yield fetch("https://api.themoviedb.org/3/" + tipo + "/" + tmdbId + "?api_key=" + TMDB_KEY + "&language=es-MX").then(function(r) {
-        return r.json();
-      });
-      var t = tipo === "movie" ? resMx.title : resMx.name;
-      if (t && !reel.test(t))
-        titleEs = titleEs || t;
-    } catch (e2) {
-      console.error("[Cinemitas] TMDB es-MX: " + (e2 && e2.message));
-    }
-    try {
-      var resEn = yield fetch("https://api.themoviedb.org/3/" + tipo + "/" + tmdbId + "?api_key=" + TMDB_KEY + "&language=en-US").then(function(r) {
-        return r.json();
-      });
-      titleEn = tipo === "movie" ? resEn.title : resEn.name;
-    } catch (e3) {
-      console.error("[Cinemitas] TMDB en-US: " + (e3 && e3.message));
-    }
+    }));
+    var res = datos[0] || {};
+    var titleEs = tipo === "movie" ? res.title : res.name;
+    var titleOriginal = tipo === "movie" ? res.original_title : res.original_name;
+    var year = null;
+    var fecha = tipo === "movie" ? res.release_date : res.first_air_date;
+    if (fecha)
+      year = String(fecha).split("-")[0];
+    var resMx = datos[1] || {};
+    var t = tipo === "movie" ? resMx.title : resMx.name;
+    if (t && !reel.test(t))
+      titleEs = titleEs || t;
+    var resEn = datos[2] || {};
+    var titleEn = tipo === "movie" ? resEn.title : resEn.name;
     return { titleEs, titleOriginal, titleEn, year };
   });
 }
@@ -823,6 +777,8 @@ function resolverOpciones(pagina) {
     var opciones = extraerOpciones(pagina.html);
     console.log("[Cinemitas] Opciones del reproductor: " + opciones.length);
     var streams = [];
+    var latinos = 0;
+    var subs = 0;
     var i;
     for (i = 0; i < opciones.length; i++) {
       var op = opciones[i];
@@ -851,6 +807,10 @@ function resolverOpciones(pagina) {
             continue;
           embedUrl = src[1];
         }
+        if (/bysezoxexe\.com/i.test(embedUrl)) {
+          console.log("[Cinemitas] Opcion descartada (Bysezoxexe es SPA): " + embedUrl);
+          continue;
+        }
         console.log("[Cinemitas] Opcion " + op.nume + " (" + idioma + "): " + embedUrl);
         var resuelto = yield resolverEmbed(embedUrl);
         if (resuelto && resuelto.url) {
@@ -864,11 +824,19 @@ function resolverOpciones(pagina) {
             url: resuelto.url,
             headers: resuelto.headers || {}
           });
+          if (idioma === "Latino")
+            latinos++;
+          else if (idioma === "Subtitulado")
+            subs++;
         } else {
           console.log("[Cinemitas] Embed sin resolver (" + idioma + "): " + embedUrl);
         }
       } catch (e) {
         console.log("[Cinemitas] Error en la opcion " + op.nume + ": " + (e && e.message));
+      }
+      if (latinos > 0 && subs > 0) {
+        console.log("[Cinemitas] Suficiente (1 Latino + 1 Sub): se omiten las opciones restantes");
+        break;
       }
     }
     return comprobarVivos(streams);

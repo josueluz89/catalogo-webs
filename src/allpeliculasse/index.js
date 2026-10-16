@@ -9,16 +9,18 @@
 //    queda dentro de ./labels.js.
 //  - Se resuelven SOLO los embeds marcados latino/subtitulado: los de castellano ni se piden
 //    (cero peticiones de España y bastante menos tiempo).
-//  - Presupuesto de 35 s para todo el provider (Nuvio corta a los 60 s): el original tardaba
+//  - Presupuesto de 45 s para todo el provider (Nuvio corta a los 60 s): el original tardaba
 //    ~65 s en la película por el barrido de espejos y los reintentos de goodstream (que hoy
-//    responde 522 tras 20 s).
+//    responde 522 tras 20 s). 2026-10-16: el barrido StreamWish ya no incluye el espejo
+//    muerto awish.pro y VOE aborta en cuanto ve su gate ALTCHA, así que el presupuesto
+//    alcanza para llegar a Vimeos (el resolver más fiable hoy).
 //  - Filtro final por idioma (título + language): solo 'Latino' o 'Subtitulado'.
 
 import { datosTMDB, buscarPosts, buscarCapitulo, embedsDe, limpiarTitulo, consultaDe } from './sitio.js';
 import { resolverEmbed, limpiarCabecerasVimeos } from './resolvers.js';
 import { calidadDe, servidorDe, tituloStream } from './labels.js';
 
-var PRESUPUESTO_MS = 35000;
+var PRESUPUESTO_MS = 45000;
 
 function crearVencido(ms) {
   var t0 = Date.now();

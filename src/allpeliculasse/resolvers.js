@@ -11,6 +11,10 @@
 //      · FileMoon: /api/videos/<id>/embed/details responde 404.
 //      · DoodStream / StreamTape / Waaw / OkRu: no aparecen en ningún embed de este sitio.
 //    Se conservan los cuatro que sí devuelven m3u8 hoy: StreamWish, VidHide, VOE y Vimeos.
+//    OJO 2026-10-16: VOE redirige a un gate ALTCHA ("Confirm you're human", dominio
+//    megankiddifference.com) que no se puede pasar del lado del servidor: resolverVoe aborta
+//    en cuanto ve ese destino, sin pedir la página del gate. Se mantiene el resolver por si
+//    el gate se levanta o no aplica a la IP del usuario final (residencial).
 
 import { fetchText } from '../shared/http.js';
 
@@ -77,11 +81,12 @@ export function limpiarCabecerasVimeos(url, cabeceras) {
 // ── StreamWish ────────────────────────────────────────────────────────────────
 // El origen rota de dominio a cada rato; el file_code se mantiene. Se prueban los espejos
 // que hoy responden y se para en cuanto uno da el m3u8.
+// OJO 2026-10-16: awish.pro NO responde (cuelga hasta el timeout, ~12 s por intento) y se
+// sacó de la lista; hlswish.com rechaza la conexión. Quedan los 4 espejos que hoy dan 200.
 var ESPEJOS_WISH = [
   'https://hanerix.com/e/',
   'https://embedwish.com/e/',
   'https://hglink.to/e/',
-  'https://awish.pro/e/',
   'https://strwish.com/e/'
 ];
 
@@ -193,6 +198,10 @@ async function resolverVoe(embedUrl, vencido) {
     if (html.indexOf('window.location.href') !== -1 && html.length < 2000) {
       var rm = html.match(/window\.location\.href\s*=\s*['"]([^'"]+)['"]/i);
       if (rm) {
+        // Gate ALTCHA (2026-10-16): VOE redirige a megankiddifference.com, una página
+        // "Confirm you're human" sin video. No se puede pasar del lado del servidor:
+        // abortar sin pedirla (ahorra un fetch por embed).
+        if (/megankiddifference\.com/i.test(rm[1])) return null;
         try {
           var next = await fetchText(rm[1], { headers: { 'User-Agent': USER_AGENT } });
           if (next) html = next;

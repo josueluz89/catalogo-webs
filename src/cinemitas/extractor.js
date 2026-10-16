@@ -39,37 +39,31 @@ function slugify(titulo) {
 }
 
 // ---------- titulos de TMDB (multi-idioma, como el original) ----------
+// Las 3 consultas son independientes: se lanzan en paralelo y se combinan
+// en el mismo orden que antes (es-ES manda, es-MX solo rellena, en-US aparte).
 async function getTmdbTitles(tmdbId, tipo) {
-  var titleEs = null;
-  var titleOriginal = null;
-  var titleEn = null;
-  var year = null;
   var reel = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/;
+  var datos = await Promise.all(['es-ES', 'es-MX', 'en-US'].map(function (idioma) {
+    return fetch('https://api.themoviedb.org/3/' + tipo + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=' + idioma)
+      .then(function (r) { return r.json(); })
+      .catch(function (e) {
+        console.error('[Cinemitas] TMDB ' + idioma + ': ' + (e && e.message));
+        return null;
+      });
+  }));
+  var res = datos[0] || {};
+  var titleEs = tipo === 'movie' ? res.title : res.name;
+  var titleOriginal = tipo === 'movie' ? res.original_title : res.original_name;
+  var year = null;
+  var fecha = tipo === 'movie' ? res.release_date : res.first_air_date;
+  if (fecha) year = String(fecha).split('-')[0];
 
-  try {
-    var res = await fetch('https://api.themoviedb.org/3/' + tipo + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=es-ES').then(function (r) { return r.json(); });
-    titleEs = tipo === 'movie' ? res.title : res.name;
-    titleOriginal = tipo === 'movie' ? res.original_title : res.original_name;
-    var fecha = tipo === 'movie' ? res.release_date : res.first_air_date;
-    if (fecha) year = String(fecha).split('-')[0];
-  } catch (e) {
-    console.error('[Cinemitas] TMDB es-ES: ' + (e && e.message));
-  }
+  var resMx = datos[1] || {};
+  var t = tipo === 'movie' ? resMx.title : resMx.name;
+  if (t && !reel.test(t)) titleEs = titleEs || t;
 
-  try {
-    var resMx = await fetch('https://api.themoviedb.org/3/' + tipo + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=es-MX').then(function (r) { return r.json(); });
-    var t = tipo === 'movie' ? resMx.title : resMx.name;
-    if (t && !reel.test(t)) titleEs = titleEs || t;
-  } catch (e2) {
-    console.error('[Cinemitas] TMDB es-MX: ' + (e2 && e2.message));
-  }
-
-  try {
-    var resEn = await fetch('https://api.themoviedb.org/3/' + tipo + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=en-US').then(function (r) { return r.json(); });
-    titleEn = tipo === 'movie' ? resEn.title : resEn.name;
-  } catch (e3) {
-    console.error('[Cinemitas] TMDB en-US: ' + (e3 && e3.message));
-  }
+  var resEn = datos[2] || {};
+  var titleEn = tipo === 'movie' ? resEn.title : resEn.name;
 
   return { titleEs: titleEs, titleOriginal: titleOriginal, titleEn: titleEn, year: year };
 }
@@ -212,6 +206,8 @@ async function resolverOpciones(pagina) {
   var opciones = extraerOpciones(pagina.html);
   console.log('[Cinemitas] Opciones del reproductor: ' + opciones.length);
   var streams = [];
+  var latinos = 0;
+  var subs = 0;
   var i;
   for (i = 0; i < opciones.length; i++) {
     var op = opciones[i];
@@ -239,6 +235,12 @@ async function resolverOpciones(pagina) {
         if (!src) continue;
         embedUrl = src[1];
       }
+      // Bysezoxexe es un SPA (cascaron <div id="root"> + JS): no hay nada que
+      // extraer del lado del servidor, se descarta sin gastar un fetch.
+      if (/bysezoxexe\.com/i.test(embedUrl)) {
+        console.log('[Cinemitas] Opcion descartada (Bysezoxexe es SPA): ' + embedUrl);
+        continue;
+      }
       console.log('[Cinemitas] Opcion ' + op.nume + ' (' + idioma + '): ' + embedUrl);
 
       var resuelto = await resolverEmbed(embedUrl);
@@ -253,11 +255,18 @@ async function resolverOpciones(pagina) {
           url: resuelto.url,
           headers: resuelto.headers || {}
         });
+        if (idioma === 'Latino') latinos++;
+        else if (idioma === 'Subtitulado') subs++;
       } else {
         console.log('[Cinemitas] Embed sin resolver (' + idioma + '): ' + embedUrl);
       }
     } catch (e) {
       console.log('[Cinemitas] Error en la opcion ' + op.nume + ': ' + (e && e.message));
+    }
+    // Con 1 Latino + 1 Subtitulado ya hay de sobra: no se gastan más AJAX.
+    if (latinos > 0 && subs > 0) {
+      console.log('[Cinemitas] Suficiente (1 Latino + 1 Sub): se omiten las opciones restantes');
+      break;
     }
   }
   return comprobarVivos(streams);

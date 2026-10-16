@@ -10,7 +10,7 @@
 //     vez de uqload.com, que responde 403 a los enlaces frescos.
 
 import {
-  UA, urlOrigen, urlAbsoluta, pedirTexto, base64Decodificar, desempacarBase36, extraerM3u8, extraerHls
+  UA, urlOrigen, urlAbsoluta, pedir, pedirTexto, base64Decodificar, desempacarBase36, extraerM3u8, extraerHls
 } from './util.js';
 
 // ---------- packer de Dean Edwards (variante que recibe el script entero) ----------
@@ -266,35 +266,6 @@ async function resolverVimeos(embedUrl) {
   return null;
 }
 
-// ---------- Bysezoxexe (inlineado de cdn_resolvers.js) ----------
-async function resolverBysezoxexe(embedUrl) {
-  try {
-    var html = await pedirTexto(embedUrl, { Referer: 'https://cinemitas.org/' });
-    if (!html) return null;
-    var token = (html.match(/["']token["']\s*:\s*["']([^"']+)["']/) || [])[1] ||
-                (html.match(/["'](?:fileId|videoId|file_code|hash)["']\s*:\s*["']([^"']+)["']/) || [])[1] ||
-                (String(embedUrl).match(/\/([a-z0-9]{8,})$/i) || [])[1];
-    if (!token) return null;
-    var origen = 'https://bysezoxexe.com';
-    var candidatos = [origen + '/api/video/' + token, origen + '/api/play/' + token, origen + '/api/stream/' + token, origen + '/api/get/' + token];
-    var i;
-    for (i = 0; i < candidatos.length; i++) {
-      var t = await pedirTexto(candidatos[i], { Referer: origen + '/' }).catch(function () { return null; });
-      if (!t) continue;
-      var m3 = extraerM3u8(t);
-      if (m3) return { url: m3, server: 'Bysezoxexe', quality: '1080p', headers: { Referer: origen + '/', 'User-Agent': UA } };
-      try {
-        var j = JSON.parse(t);
-        var f = j.url || j.file || j.stream_url || j.streaming_url || (j.data && (j.data.url || j.data.file || j.data.streaming_url));
-        if (f && /^http/.test(f)) return { url: f, server: 'Bysezoxexe', quality: '1080p', headers: { Referer: origen + '/', 'User-Agent': UA } };
-      } catch (e2) {}
-    }
-  } catch (e) {
-    console.log('[Cinemitas:Bysezoxexe] Error: ' + (e && e.message));
-  }
-  return null;
-}
-
 // ---------- Audinifer (inlineado de cdn_resolvers.js) ----------
 async function resolverAudinifer(embedUrl) {
   try {
@@ -318,15 +289,19 @@ async function resolverAudinifer(embedUrl) {
   return null;
 }
 
-// ---------- Vidara (inlineado de cdn_resolvers.js) ----------
+// ---------- Vidara ----------
+// La API solo acepta POST con JSON {"filecode": "..."}: el GET anterior
+// devolvía 405 "Method not allowed" y el embed quedaba sin resolver.
 async function resolverVidara(embedUrl) {
   try {
-    var html = await pedirTexto(embedUrl, { Referer: 'https://cinemitas.org/' }).catch(function () { return null; });
     var id = (String(embedUrl).match(/\/e\/([^/]+)/i) || [])[1] || (String(embedUrl).match(/\/player\/([^/]+)/i) || [])[1];
     if (!id) return null;
-    var api = 'https://vidara.so/api/stream?filecode=' + encodeURIComponent(id);
-    var res = await pedirTexto(api, { 'User-Agent': UA, Referer: embedUrl, Accept: 'application/json' });
-    var j = JSON.parse(res);
+    var res = await pedir('https://vidara.so/api/stream', {
+      'User-Agent': UA, Referer: embedUrl, Origin: urlOrigen(embedUrl),
+      Accept: 'application/json', 'Content-Type': 'application/json'
+    }, { metodo: 'POST', cuerpo: JSON.stringify({ filecode: id }) });
+    if (!res.ok) return null;
+    var j = JSON.parse(await res.text());
     var f = j.streaming_url || j.file || j.url || j.source || (j.data && (j.data.streaming_url || j.data.url || j.data.file));
     if (f && /^http/.test(f)) return { url: f, server: 'Vidara', quality: '1080p', headers: { Referer: embedUrl, 'User-Agent': UA } };
   } catch (e) {
@@ -339,18 +314,17 @@ async function resolverVidara(embedUrl) {
 function resolverEmbed(embedUrl) {
   var u = String(embedUrl || '').toLowerCase();
   if (u.indexOf('voe.sx') !== -1 || u.indexOf('/voe/') !== -1) return resolverVoe(embedUrl);
-  if (u.indexOf('wish') !== -1 || u.indexOf('bysezoxexe') !== -1 || u.indexOf('vibuxer') !== -1 || u.indexOf('hglink') !== -1 || u.indexOf('hanerix') !== -1) return resolverStreamwish(embedUrl);
+  if (u.indexOf('wish') !== -1 || u.indexOf('vibuxer') !== -1 || u.indexOf('hglink') !== -1 || u.indexOf('hanerix') !== -1) return resolverStreamwish(embedUrl);
   if (u.indexOf('vidhide') !== -1 || u.indexOf('ds2play') !== -1 || u.indexOf('do7go') !== -1 || u.indexOf('dintezuvio') !== -1) return resolverVidhide(embedUrl);
   if (u.indexOf('filemoon') !== -1 || u.indexOf('fmoon') !== -1) return resolverFilemoon(embedUrl);
   if (u.indexOf('cvid.lat') !== -1) return resolverCvid(embedUrl);
   if (u.indexOf('uqload') !== -1) return resolverUqload(embedUrl);
   if (u.indexOf('goodstream') !== -1) return resolverGoodstream(embedUrl);
   if (u.indexOf('vimeos') !== -1) return resolverVimeos(embedUrl);
-  if (u.indexOf('bysezoxexe') !== -1) return resolverBysezoxexe(embedUrl);
   if (u.indexOf('audinifer') !== -1) return resolverAudinifer(embedUrl);
   if (u.indexOf('vidara') !== -1) return resolverVidara(embedUrl);
   console.log('[Cinemitas] Sin resolver para: ' + embedUrl);
   return Promise.resolve(null);
 }
 
-export { resolverEmbed, resolverVoe, resolverStreamwish, resolverVidhide, resolverFilemoon, resolverCvid, resolverUqload, resolverGoodstream, resolverVimeos, resolverBysezoxexe, resolverAudinifer, resolverVidara };
+export { resolverEmbed, resolverVoe, resolverStreamwish, resolverVidhide, resolverFilemoon, resolverCvid, resolverUqload, resolverGoodstream, resolverVimeos, resolverAudinifer, resolverVidara };
