@@ -17,7 +17,7 @@ import { datosTMDB, buscarPosts, capitulosDe, embedsDe, limpiarTitulo, consultaD
 import { resolverEmbed, limpiarCabecerasVimeos } from './resolvers.js';
 import { calidadDe, servidorDe, tituloStream } from './labels.js';
 
-var PRESUPUESTO_MS = 35000;
+var PRESUPUESTO_MS = 55000;
 
 function crearVencido(ms) {
   var t0 = Date.now();
@@ -133,7 +133,16 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       return [];
     }
 
-    // 4) Resolver solo latino/subtitulado
+    // 4) Resolver solo latino/subtitulado, descartando de entrada los embeds
+    // sin resolver (goodstream, filemoon, videoapp). El orden del player ya
+    // trae Vimeos primero y se conserva.
+    var embedsUtiles = [];
+    for (var f = 0; f < embeds.length; f++) {
+      var fu = String((embeds[f] || {}).url || '').toLowerCase();
+      if (fu.indexOf('goodstream') !== -1 || fu.indexOf('filemoon') !== -1 || fu.indexOf('videoapp') !== -1) continue;
+      embedsUtiles.push(embeds[f]);
+    }
+    embeds = embedsUtiles;
     var streams = [];
     for (var e = 0; e < embeds.length; e++) {
       var embed = embeds[e] || {};

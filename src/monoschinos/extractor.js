@@ -27,7 +27,7 @@ const HEADERS = {
   'Referer': HOST + '/',
 };
 
-const MAX_EMBEDS = 8;
+const MAX_EMBEDS = 4;
 const MAX_STREAMS = 8;
 
 // el resolver compartido de voe devuelve 'Unknown' cuando la URL no dice la calidad:
@@ -380,6 +380,15 @@ async function extraer(tmdbId, mediaType, season, episode, title) {
 
   var embeds = await getEmbedUrls(pageUrl);
   if (!embeds.length) return [];
+  // Priorizar los hosts que resuelven (uqload, mp4upload) y descartar de
+  // entrada los que acaban en null (byse/filemoon, mixdrop sin resolver):
+  // en el caso anime eran intentos perdidos antes de los que sí resuelven.
+  embeds = embeds.filter(function (u) { return !/byse|mixdrop/i.test(u); });
+  embeds.sort(function (a, b) {
+    var pa = /uqload|mp4upload/i.test(a) ? 0 : 1;
+    var pb = /uqload|mp4upload/i.test(b) ? 0 : 1;
+    return pa - pb;
+  });
   if (embeds.length > MAX_EMBEDS) embeds = embeds.slice(0, MAX_EMBEDS);
 
   var etiqueta = etiquetaDeTitulo(pageUrl);

@@ -1,6 +1,6 @@
 /**
  * allpeliculasse - Built from src/allpeliculasse/
- * Generated: 2026-10-16T21:45:53.004Z
+ * Generated: 2026-10-22T08:00:37.088Z
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -101,24 +101,35 @@ function consultaDe(title) {
 }
 function datosTMDB(id, tipo) {
   return __async(this, null, function* () {
+    var idiomas = ["es-MX", "es-ES", "en-US"];
+    function pedir(url) {
+      return fetchJson(url, { headers: { "User-Agent": USER_AGENT } }).then(function(r) {
+        return r;
+      }, function() {
+        return null;
+      });
+    }
+    var promesas = [];
+    for (var i = 0; i < idiomas.length; i++) {
+      promesas.push(pedir("https://api.themoviedb.org/3/" + tipo + "/" + id + "?api_key=" + TMDB_API_KEY + "&language=" + idiomas[i]));
+    }
+    var resultados = yield Promise.all(promesas);
     var titulos = [];
     var year = "";
-    var idiomas = ["es-MX", "es-ES", "en-US"];
-    for (var i = 0; i < idiomas.length; i++) {
-      try {
-        var url = "https://api.themoviedb.org/3/" + tipo + "/" + id + "?api_key=" + TMDB_API_KEY + "&language=" + idiomas[i];
-        var res = yield fetchJson(url, { headers: { "User-Agent": USER_AGENT } });
-        var t = tipo === "movie" ? res.title : res.name;
-        var o = tipo === "movie" ? res.original_title : res.original_name;
-        if (t && titulos.indexOf(t) === -1)
-          titulos.push(t);
-        if (o && titulos.indexOf(o) === -1)
-          titulos.push(o);
-        if (!year)
-          year = String(res.release_date || res.first_air_date || "").substring(0, 4);
-      } catch (e) {
-        console.log("[AllpeliculasSE] TMDB error (" + idiomas[i] + "): " + (e && e.message));
+    for (var j = 0; j < idiomas.length; j++) {
+      var res = resultados[j];
+      if (!res) {
+        console.log("[AllpeliculasSE] TMDB error (" + idiomas[j] + ")");
+        continue;
       }
+      var t = tipo === "movie" ? res.title : res.name;
+      var o = tipo === "movie" ? res.original_title : res.original_name;
+      if (t && titulos.indexOf(t) === -1)
+        titulos.push(t);
+      if (o && titulos.indexOf(o) === -1)
+        titulos.push(o);
+      if (!year)
+        year = String(res.release_date || res.first_air_date || "").substring(0, 4);
     }
     return titulos.length ? { titles: titulos, year } : null;
   });
@@ -240,9 +251,7 @@ function limpiarCabecerasVimeos(url, cabeceras) {
 }
 var ESPEJOS_WISH = [
   "https://hanerix.com/e/",
-  "https://embedwish.com/e/",
-  "https://hglink.to/e/",
-  "https://strwish.com/e/"
+  "https://embedwish.com/e/"
 ];
 function resolverStreamwish(embedUrl, vencido) {
   return __async(this, null, function* () {
@@ -566,7 +575,7 @@ function tituloStream(calidad, etiquetaIdioma, servidor) {
 }
 
 // src/allpeliculasse/index.js
-var PRESUPUESTO_MS = 45e3;
+var PRESUPUESTO_MS = 55e3;
 function crearVencido(ms) {
   var t0 = Date.now();
   return function() {
@@ -609,6 +618,18 @@ function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     var vencido = crearVencido(PRESUPUESTO_MS);
     try {
+      let grupoEmbed = function(url2) {
+        var u = String(url2 || "").toLowerCase();
+        if (u.indexOf("vimeos") !== -1 || u.indexOf("vms.sh") !== -1)
+          return 0;
+        if (u.indexOf("hlswish") !== -1 || u.indexOf("streamwish") !== -1 || u.indexOf("hglink") !== -1 || u.indexOf("embedwish") !== -1 || u.indexOf("strwish") !== -1 || u.indexOf("hanerix") !== -1 || u.indexOf("awish") !== -1)
+          return 1;
+        if (u.indexOf("voe") !== -1)
+          return 2;
+        if (u.indexOf("vidhide") !== -1)
+          return 3;
+        return 4;
+      };
       var tipo = normalizarTipo(mediaType);
       console.log("[AllpeliculasSE] ID " + tmdbId + " tipo " + tipo + " S:" + season + " E:" + episode);
       var info = yield datosTMDB(tmdbId, tipo);
@@ -664,6 +685,17 @@ function getStreams(tmdbId, mediaType, season, episode) {
       var embeds = yield embedsDe(objetivo);
       if (!embeds.length)
         return [];
+      var embedsOrdenados = [];
+      for (var g = 0; g <= 4; g++) {
+        for (var o = 0; o < embeds.length; o++) {
+          var ou = String((embeds[o] || {}).url || "").toLowerCase();
+          if (ou.indexOf("goodstream") !== -1 || ou.indexOf("filemoon") !== -1 || ou.indexOf("videoapp") !== -1)
+            continue;
+          if (grupoEmbed(embeds[o].url) === g)
+            embedsOrdenados.push(embeds[o]);
+        }
+      }
+      embeds = embedsOrdenados;
       var streams = [];
       for (var e = 0; e < embeds.length; e++) {
         var embed = embeds[e] || {};

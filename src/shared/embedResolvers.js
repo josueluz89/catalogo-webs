@@ -1,4 +1,4 @@
-import { fetchText, fetchWithRetry, fetchWithTimeout } from './http.js';
+import { fetchText, fetchJson, fetchWithRetry, fetchWithTimeout } from './http.js';
 import { detectQualityFromM3U8 } from './quality.js';
 import { resolveVoeStream } from './voe.js';
 
@@ -26,25 +26,29 @@ function base64Decode(input) {
 }
 
 export function unpackPacked(html) {
+  // Reescritura limpia (2026-10-22): el desempaquetador anterior decodificaba
+  // los índices en base 36 y rompía los packs en radix 62 (letras mayúsculas
+  // significativas). Ahora los índices se decodifican en la base declarada
+  // por el propio pack, con el alfabeto 0-9a-zA-Z.
   try {
     const pMatch = html.match(/eval\(function\(p,a,c,k,e,[premd]\)\{.*?\}\s*\('([\s\S]*?)',\s*(\d+),\s*(\d+),\s*'([\s\S]*?)'\.split\('\|'\)/);
     if (!pMatch) return null;
-    let [, p, a, c, k] = pMatch;
-    a = parseInt(a, 10);
-    c = parseInt(c, 10);
-    k = k.split('|');
-    const decodeBase36 = (num, rad) => {
-      const symbols = '0123456789abcdefghijklmnopqrstuvwxyz';
-      let res = '';
-      while (num > 0) {
-        res = symbols[num % rad] + res;
-        num = Math.floor(num / rad);
+    const payload = pMatch[1];
+    const radix = parseInt(pMatch[2], 10);
+    const symtab = pMatch[4].split('|');
+    const ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const decodeIndex = (word) => {
+      let value = 0;
+      for (let i = 0; i < word.length; i++) {
+        const digit = ALPHABET.indexOf(word[i]);
+        if (digit === -1 || digit >= radix) return -1;
+        value = value * radix + digit;
       }
-      return res || '0';
+      return value;
     };
-    return p.replace(/\b\w+\b/g, (w) => {
-      const idx = parseInt(w, 36);
-      return idx < k.length && k[idx] ? k[idx] : decodeBase36(idx, a);
+    return payload.replace(/\b\w+\b/g, (word) => {
+      const idx = decodeIndex(word);
+      return idx >= 0 && idx < symtab.length && symtab[idx] ? symtab[idx] : word;
     });
   } catch (e) {
     return null;
@@ -419,20 +423,74 @@ export async function resolveGoodstreamStream(embedUrl) {
 }
 
 export async function resolveVimeosStream(embedUrl) {
+  // Reescritura limpia (2026-10-22): el resolver anterior no desempaquetaba
+  // los packs en radix 62 y devolvía el stream con Referer, que vimeos
+  // rechaza con 403 en el HLS. Esta versión baja la página, extrae el m3u8
+  // (en claro, en pack o vía config de player.vimeo.com) y devuelve solo
+  // User-Agent, sin Referer ni Origin.
+  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
   try {
     const origin = getUrlOrigin(embedUrl);
-    // Short budget: a hanging host must not eat the 40s provider cap.
     const html = await fetchWithRetry(embedUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'User-Agent': UA,
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         Referer: origin + '/',
       },
     }, 1, 12000);
-    const url = extractUrlsetM3U8(html);
-    if (!url) return null;
-    const quality = await detectQualityFromM3U8(url);
-    return { url, quality, headers: { Referer: origin + '/' } };
+    if (!html) return null;
+    const headers = { 'User-Agent': UA };
+
+    const fromSources = extractUrlsetM3U8(html);
+    if (fromSources) {
+      return { url: fromSources, quality: await detectQualityFromM3U8(fromSources), headers };
+    }
+
+    const vimeoId = (html.match(/vimeo\.com\/video\/(\d+)/i) || embedUrl.match(/\/(\d{7,10})/) || [])[1];
+    if (vimeoId) {
+      try {
+        const cfg = await fetchJson('https://player.vimeo.com/video/' + vimeoId + '/config', {
+          headers: { 'User-Agent': UA, Referer: embedUrl },
+        });
+        const files = cfg && cfg.request && cfg.request.files;
+        const hlsUrl = files && files.hls && files.hls.cdns && files.hls.cdns.default && files.hls.cdns.default.url;
+        if (hlsUrl) return { url: hlsUrl, quality: '1080p', headers };
+        const prog = files && files.progressive;
+        if (prog && prog.length > 0) {
+          const best = prog.slice().sort(function (a, b) { return (parseInt(b.quality, 10) || 0) - (parseInt(a.quality, 10) || 0); })[0];
+          if (best && best.url) return { url: best.url, quality: best.quality ? best.quality + 'p' : '1080p', headers };
+        }
+      } catch (e) { /* sin config: seguir al directo */ }
+    }
+
+    const direct = html.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/i);
+    if (direct) {
+      return { url: direct[0], quality: await detectQualityFromM3U8(direct[0]), headers };
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// videoapp.zip envuelve el mismo embed de vimeos: seguir su iframe y
+// resolverlo como vimeos. Si no lleva a vimeos, no es un stream real.
+export async function resolveVideoappStream(embedUrl) {
+  try {
+    const html = await fetchWithRetry(embedUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Referer: embedUrl,
+      },
+    }, 1, 12000);
+    if (!html) return null;
+    const iframe = html.match(/<iframe[^>]*src=["']([^"']+)["']/i);
+    if (!iframe) return null;
+    let iframeUrl = iframe[1];
+    if (iframeUrl.indexOf('//') === 0) iframeUrl = 'https:' + iframeUrl;
+    else if (iframeUrl.indexOf('http') !== 0) return null;
+    if (!/vimeos|vms\.sh/i.test(iframeUrl)) return null;
+    return resolveVimeosStream(iframeUrl);
   } catch (e) {
     return null;
   }
@@ -573,6 +631,9 @@ export function getEmbedResolver(url) {
   }
   if (url.includes('mp4upload')) {
     return resolveMp4uploadStream;
+  }
+  if (url.includes('videoapp')) {
+    return resolveVideoappStream;
   }
   return null;
 }

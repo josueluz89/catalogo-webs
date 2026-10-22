@@ -1,6 +1,7 @@
 import { fetchText, fetchJson } from '../shared/http.js';
 import { getEmbedResolver, mapDomain } from '../shared/embedResolvers.js';
 import { resolveEmbed69Servers } from './embed69.js';
+import { resolverVidhide, esVidhide } from './vidhide.js';
 
 const TMDB_API_KEY = '1f54bd990f1cdfb230adb312546d765d';
 const MAIN_URL = 'https://pelisplushd.bz';
@@ -92,14 +93,14 @@ function searchSite(query) {
   }).catch(function() { return []; });
 }
 
-function scoreCandidates(candidates, media, expectedKind) {
+function scoreAll(candidates, media, expectedKind) {
   var no = normalizeText(media.originalTitle || '');
   var nt = normalizeText(media.title || '');
   var words = (no + ' ' + nt).split(' ').filter(Boolean);
   var unique = {};
   words = words.filter(function(w) { if (unique[w]) return false; unique[w] = true; return true; });
 
-  var best = null, bestScore = -1;
+  var puntuados = [];
   for (var i = 0; i < candidates.length; i++) {
     var c = candidates[i];
     var nc = normalizeText(c.title);
@@ -122,10 +123,10 @@ function scoreCandidates(candidates, media, expectedKind) {
     }
     if (media.year && c.title.indexOf(media.year) !== -1) score += 5;
     if (c.kind === expectedKind) score += 3;
-    if (score > bestScore) { bestScore = score; best = c; }
+    if (score >= 15) puntuados.push({ c: c, score: score });
   }
-  if (!best || bestScore < 15) return null;
-  return best;
+  puntuados.sort(function (a, b) { return b.score - a.score; });
+  return puntuados.map(function (x) { return x.c; });
 }
 
 function getServersFromDetail(html) {
@@ -169,6 +170,22 @@ function getServersFromDetail(html) {
 }
 
 function resolverUnEmbed(embedUrl, label, lang) {
+  var bajo = String(embedUrl || '').toLowerCase();
+  if (bajo.indexOf('voe.sx') !== -1) return Promise.resolve(null);
+  if (esVidhide(embedUrl)) {
+    return resolverVidhide(embedUrl).then(function (result) {
+      if (result && result.url) {
+        return {
+          name: 'Pelisplusto (' + label + ')',
+          title: (result.quality || 'HD') + ' · ' + lang + ' · ' + label,
+          url: result.url,
+          quality: result.quality || 'HD',
+          headers: result.headers,
+        };
+      }
+      return null;
+    }).catch(function () { return null; });
+  }
   var fixedUrl = mapDomain(embedUrl);
   var resolver = getEmbedResolver(fixedUrl);
   if (!resolver) return Promise.resolve(null);
@@ -187,26 +204,35 @@ function resolverUnEmbed(embedUrl, label, lang) {
 }
 
 function resolveServers(servers) {
-  var streams = [];
-  var promises = servers.map(function(s) {
-    // PelisPlusHD trae todos sus servidores por embed69: /f/ (PoW + enlaces
-    // cifrados) y /video/ (servidores en claro). Se expanden a los embeds
-    // reales y cada uno pasa por el resolver compartido de su host.
-    if (s.src.indexOf('embed69.org/') !== -1) {
-      return resolveEmbed69Servers(s.src).then(function(targets) {
-        var inner = targets.map(function(t) {
-          return resolverUnEmbed(t.url, t.label, t.lang);
-        });
-        return Promise.all(inner).then(function(resolved) {
-          resolved.forEach(function(r) { if (r) streams.push(r); });
-        });
-      }).catch(function() {});
-    }
-    return resolverUnEmbed(s.src, s.label, 'LAT').then(function(r) {
-      if (r) streams.push(r);
+  var vidhide = [];
+  var resto = [];
+  for (var i = 0; i < servers.length; i++) {
+    if (esVidhide(servers[i].src)) vidhide.push(servers[i]);
+    else resto.push(servers[i]);
+  }
+  function resolverLista(lista) {
+    var streams = [];
+    var promises = lista.map(function (s) {
+      if (s.src.indexOf('embed69.org/') !== -1) {
+        return resolveEmbed69Servers(s.src).then(function (targets) {
+          var inner = targets.map(function (t) {
+            return resolverUnEmbed(t.url, t.label, t.lang);
+          });
+          return Promise.all(inner).then(function (resolved) {
+            resolved.forEach(function (r) { if (r) streams.push(r); });
+          });
+        }).catch(function () {});
+      }
+      return resolverUnEmbed(s.src, s.label, 'LAT').then(function (r) {
+        if (r) streams.push(r);
+      });
     });
+    return Promise.all(promises).then(function () { return streams; });
+  }
+  return resolverLista(vidhide).then(function (streams) {
+    if (streams.length) return streams;
+    return resolverLista(resto);
   });
-  return Promise.all(promises).then(function() { return streams; });
 }
 
 function getMovieStreams(slug) {
@@ -244,26 +270,34 @@ export function extractStreams(tmdbId, mediaType, season, episode) {
   var tmdbType = (mediaType === 'tv' || mediaType === 'series' || mediaType === 'anime') ? 'tv' : 'movie';
   var expectedKind = tmdbType;
   return getMediaTitle(tmdbId, tmdbType)
-    .then(function(media) {
+    .then(function (media) {
       var queries = [];
       if (media.originalTitle) queries.push(media.originalTitle);
       if (media.title && media.title !== media.originalTitle) queries.push(media.title);
       if (queries.length === 0) return [];
-      var all = [];
-      var chain = Promise.resolve();
-      queries.forEach(function(q) {
-        chain = chain.then(function() {
-          return searchSite(q).then(function(c) { all = all.concat(c); });
+      return Promise.all(queries.map(function (q) { return searchSite(q); }))
+        .then(function (listas) {
+          var all = [];
+          listas.forEach(function (c) { all = all.concat(c); });
+          var ordenados = scoreAll(all, media, expectedKind);
+          if (!ordenados.length) return [];
+          // Se prueban los candidatos en orden de puntuación: si la ficha
+          // de uno está borrada (404) o no da streams, se pasa al siguiente
+          // en vez de devolver [] por un solo fallo.
+          function probar(i) {
+            if (i >= ordenados.length) return [];
+            var siguiente = expectedKind === 'movie'
+              ? getMovieStreams(ordenados[i].slug)
+              : getEpisodeStreams(ordenados[i].slug, season || 1, episode || 1);
+            return siguiente.then(function (streams) {
+              if (streams && streams.length) return streams;
+              return probar(i + 1);
+            });
+          }
+          return probar(0);
         });
-      });
-      return chain.then(function() {
-        var best = scoreCandidates(all, media, expectedKind);
-        if (!best) return [];
-        if (expectedKind === 'movie') return getMovieStreams(best.slug);
-        return getEpisodeStreams(best.slug, season || 1, episode || 1);
-      });
     })
-    .catch(function(err) {
+    .catch(function (err) {
       console.error('[Pelisplusto] Error: ' + (err && err.message ? err.message : err));
       return [];
     });

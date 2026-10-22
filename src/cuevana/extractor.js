@@ -1,4 +1,4 @@
-import { fetchText } from '../shared/http.js';
+import { fetchText, fetchWithTimeout } from '../shared/http.js';
 import { getEmbedResolver, mapDomain } from '../shared/embedResolvers.js';
 
 var TMDB_KEY = '1f54bd990f1cdfb230adb312546d765d';
@@ -40,7 +40,7 @@ function mapPlayerDomain(url) {
 }
 function isAllowed(name) {
   var n = (name || '').toLowerCase();
-  return n.indexOf('streamwish') !== -1 || n.indexOf('vidhide') !== -1 || n.indexOf('filelions') !== -1 || n.indexOf('vidhidepro') !== -1 || n.indexOf('voe') !== -1 || n.indexOf('uqload') !== -1 || n.indexOf('dood') !== -1 || n.indexOf('filemoon') !== -1 || n.indexOf('lulu') !== -1;
+  return n.indexOf('streamwish') !== -1 || n.indexOf('vidhide') !== -1 || n.indexOf('filelions') !== -1 || n.indexOf('vidhidepro') !== -1 || n.indexOf('voe') !== -1 || n.indexOf('uqload') !== -1 || n.indexOf('dood') !== -1 || n.indexOf('filemoon') !== -1 || n.indexOf('lulu') !== -1 || n.indexOf('netu') !== -1;
 }
 
 function fetchTmdb(tmdbId, type) {
@@ -49,24 +49,37 @@ function fetchTmdb(tmdbId, type) {
       .then(function(raw) { try { return JSON.parse(raw); } catch (e) { return null; } })
       .catch(function() { return null; });
   }
-  return lang('es-MX').then(function(es) {
-    return lang('es-ES').then(function(eses) {
-      return lang('en-US').then(function(en) {
-        var latino = (es && (es.title || es.name)) || '';
-        var cast = (eses && (eses.title || eses.name)) || '';
-        var ingles = (en && (en.title || en.name)) || '';
-        var dateStr = type === 'movie'
-          ? ((es && es.release_date) || (en && en.release_date) || '')
-          : ((es && es.first_air_date) || (en && en.first_air_date) || '');
-        var year = dateStr && dateStr.length >= 4 ? dateStr.substring(0, 4) : null;
-        return { latino: latino, castellano: cast, ingles: ingles, year: year };
-      });
-    });
+  return Promise.all([lang('es-MX'), lang('es-ES'), lang('en-US')]).then(function(rs) {
+    var es = rs[0], eses = rs[1], en = rs[2];
+    var latino = (es && (es.title || es.name)) || '';
+    var cast = (eses && (eses.title || eses.name)) || '';
+    var ingles = (en && (en.title || en.name)) || '';
+    var dateStr = type === 'movie'
+      ? ((es && es.release_date) || (en && en.release_date) || '')
+      : ((es && es.first_air_date) || (en && en.first_air_date) || '');
+    var year = dateStr && dateStr.length >= 4 ? dateStr.substring(0, 4) : null;
+    return { latino: latino, castellano: cast, ingles: ingles, year: year };
   });
 }
 
 function fetchPage(url) {
   return fetchText(url, { headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8' } }).catch(function() { return null; });
+}
+
+// Como fetchPage pero devolviendo también la cookie de sesión que mande la
+// ficha (best-effort: el arnés QuickJS solo expone content-type en headers,
+// así que ahí la cookie será null y solo se mandará el Referer).
+// Fetch de una página devolviendo su HTML y su cookie de sesión (si el
+// motor la expone; en el arnés QuickJS solo se expone content-type, así
+// que ahí la cookie es null y solo se usa el Referer). null si no es 200.
+function fetchPagina(url) {
+  var headers = { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8' };
+  return fetchWithTimeout(url, { headers: headers }).then(function(res) {
+    if (!res.ok) return null;
+    var cookie = null;
+    try { cookie = res.headers && res.headers.get ? res.headers.get('set-cookie') : null; } catch (e) { cookie = null; }
+    return res.text().then(function(html) { return { html: html, cookie: cookie }; });
+  }).catch(function() { return null; });
 }
 
 function extractNextData(html) {
@@ -97,8 +110,19 @@ function groupsFromVideos(videos) {
   return out;
 }
 
-function resolvePlayer(sourceUrl) {
-  return fetchPage(sourceUrl).then(function(html) {
+// Resolución del player de Cuevana, reescrita en limpio: una sola función
+// que pide el player con el Referer de la ficha y su cookie de sesión,
+// exige un 200 explícito y extrae la URL del vídeo en orden
+// (var url -> m3u8 en claro -> iframe). Si player.php responde 500 (lo que
+// hace hoy desde este entorno), devuelve null sin inventar nada.
+function resolvePlayer(playerUrl, pagina) {
+  var headers = { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8' };
+  if (pagina && pagina.url) headers.Referer = pagina.url;
+  if (pagina && pagina.cookie) headers.Cookie = pagina.cookie;
+  return fetchWithTimeout(playerUrl, { headers: headers }).then(function(res) {
+    if (!res.ok) return null;
+    return res.text();
+  }).then(function(html) {
     if (!html) return null;
     var m = html.match(/var url = '([^']+)'/) || html.match(/var url = "([^"]+)"/);
     var videoUrl = m ? m[1] : null;
@@ -151,9 +175,9 @@ export function extractStreams(tmdbId, mediaType, season, episode) {
     var needle = isMovie ? '"thisMovie"' : '"episode"';
     function tryNext(i) {
       if (i >= candidates.length) return searchFallback();
-      return fetchPage(candidates[i]).then(function(html) {
-        if (html && html.indexOf('__NEXT_DATA__') !== -1 && html.indexOf(needle) !== -1) {
-          return { html: html };
+      return fetchPagina(candidates[i]).then(function(found) {
+        if (found && found.html && found.html.indexOf('__NEXT_DATA__') !== -1 && found.html.indexOf(needle) !== -1) {
+          return { html: found.html, url: candidates[i], cookie: found.cookie || null };
         }
         return tryNext(i + 1);
       });
@@ -173,8 +197,8 @@ export function extractStreams(tmdbId, mediaType, season, episode) {
               var slugName = item.slug && item.slug.name;
               if (slugName) {
                 var url = isMovie ? BASE + '/ver-pelicula/' + slugName : BASE + '/ver-serie/' + slugName;
-                return fetchPage(url).then(function(h2) {
-                  if (h2 && h2.indexOf('__NEXT_DATA__') !== -1 && h2.indexOf(needle) !== -1) return { html: h2 };
+                return fetchPagina(url).then(function(found2) {
+                  if (found2 && found2.html && found2.html.indexOf('__NEXT_DATA__') !== -1 && found2.html.indexOf(needle) !== -1) return { html: found2.html, url: url, cookie: found2.cookie || null };
                   return sq(i + 1);
                 });
               }
@@ -198,7 +222,7 @@ export function extractStreams(tmdbId, mediaType, season, episode) {
           (function(gr, vid) {
             if (!isAllowed(vid.cyberlocker)) return;
             jobs.push(
-              resolvePlayer(vid.url).then(function(resolved) {
+              resolvePlayer(vid.url, found).then(function(resolved) {
                 if (!resolved) return null;
                 var fixed = mapDomain(resolved);
                 var resolver = getEmbedResolver(fixed);

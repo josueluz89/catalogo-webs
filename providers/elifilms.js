@@ -1,6 +1,6 @@
 /**
  * elifilms - Built from src/elifilms/
- * Generated: 2026-10-15T23:52:36.101Z
+ * Generated: 2026-10-22T08:00:37.288Z
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -24,7 +24,7 @@ var __async = (__this, __arguments, generator) => {
 };
 
 // src/shared/http.js
-var FETCH_TIMEOUT = 12e3;
+var FETCH_TIMEOUT = 2e4;
 function fetchWithTimeout(url, options, timeout) {
   if (!options)
     options = {};
@@ -109,24 +109,35 @@ function consultaDe(title) {
 }
 function datosTMDB(id, tipo) {
   return __async(this, null, function* () {
+    var idiomas = ["es-MX", "es-ES", "en-US"];
+    function pedir(url) {
+      return fetchJson(url, { headers: { "User-Agent": USER_AGENT } }).then(function(r) {
+        return r;
+      }, function() {
+        return null;
+      });
+    }
+    var promesas = [];
+    for (var i = 0; i < idiomas.length; i++) {
+      promesas.push(pedir("https://api.themoviedb.org/3/" + tipo + "/" + id + "?api_key=" + TMDB_API_KEY + "&language=" + idiomas[i]));
+    }
+    var resultados = yield Promise.all(promesas);
     var titulos = [];
     var year = "";
-    var idiomas = ["es-MX", "es-ES", "en-US"];
-    for (var i = 0; i < idiomas.length; i++) {
-      try {
-        var url = "https://api.themoviedb.org/3/" + tipo + "/" + id + "?api_key=" + TMDB_API_KEY + "&language=" + idiomas[i];
-        var res = yield fetchJson(url, { headers: { "User-Agent": USER_AGENT } });
-        var t = tipo === "movie" ? res.title : res.name;
-        var o = tipo === "movie" ? res.original_title : res.original_name;
-        if (t && titulos.indexOf(t) === -1)
-          titulos.push(t);
-        if (o && titulos.indexOf(o) === -1)
-          titulos.push(o);
-        if (!year)
-          year = String(res.release_date || res.first_air_date || "").substring(0, 4);
-      } catch (e) {
-        console.log("[EliFilms] TMDB error (" + idiomas[i] + "): " + (e && e.message));
+    for (var j = 0; j < idiomas.length; j++) {
+      var res = resultados[j];
+      if (!res) {
+        console.log("[EliFilms] TMDB error (" + idiomas[j] + ")");
+        continue;
       }
+      var t = tipo === "movie" ? res.title : res.name;
+      var o = tipo === "movie" ? res.original_title : res.original_name;
+      if (t && titulos.indexOf(t) === -1)
+        titulos.push(t);
+      if (o && titulos.indexOf(o) === -1)
+        titulos.push(o);
+      if (!year)
+        year = String(res.release_date || res.first_air_date || "").substring(0, 4);
     }
     return titulos.length ? { titles: titulos, year } : null;
   });
@@ -264,10 +275,7 @@ function limpiarCabecerasVimeos(url, cabeceras) {
 }
 var ESPEJOS_WISH = [
   "https://hanerix.com/e/",
-  "https://embedwish.com/e/",
-  "https://hglink.to/e/",
-  "https://awish.pro/e/",
-  "https://strwish.com/e/"
+  "https://embedwish.com/e/"
 ];
 function resolverStreamwish(embedUrl, vencido) {
   return __async(this, null, function* () {
@@ -589,7 +597,7 @@ function tituloStream(calidad, etiquetaIdioma, servidor) {
 }
 
 // src/elifilms/index.js
-var PRESUPUESTO_MS = 35e3;
+var PRESUPUESTO_MS = 55e3;
 function crearVencido(ms) {
   var t0 = Date.now();
   return function() {
@@ -705,6 +713,14 @@ function getStreams(tmdbId, mediaType, season, episode) {
         console.log("[EliFilms] Sin embeds.");
         return [];
       }
+      var embedsUtiles = [];
+      for (var f = 0; f < embeds.length; f++) {
+        var fu = String((embeds[f] || {}).url || "").toLowerCase();
+        if (fu.indexOf("goodstream") !== -1 || fu.indexOf("filemoon") !== -1 || fu.indexOf("videoapp") !== -1)
+          continue;
+        embedsUtiles.push(embeds[f]);
+      }
+      embeds = embedsUtiles;
       var streams = [];
       for (var e = 0; e < embeds.length; e++) {
         var embed = embeds[e] || {};

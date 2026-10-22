@@ -1,6 +1,6 @@
 /**
  * cuevana - Built from src/cuevana/
- * Generated: 2026-09-27T07:12:00.779Z
+ * Generated: 2026-10-22T08:11:30.685Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -87,6 +87,11 @@ function fetchText(url, options, timeout) {
     if (!res.ok)
       throw new Error("HTTP " + res.status + " for " + url);
     return res.text();
+  });
+}
+function fetchJson(url, options, timeout) {
+  return fetchText(url, options, timeout).then(function(raw) {
+    return JSON.parse(raw);
   });
 }
 function fetchWithRetry(url, options, retries, timeout) {
@@ -323,22 +328,23 @@ function unpackPacked(html) {
     const pMatch = html.match(/eval\(function\(p,a,c,k,e,[premd]\)\{.*?\}\s*\('([\s\S]*?)',\s*(\d+),\s*(\d+),\s*'([\s\S]*?)'\.split\('\|'\)/);
     if (!pMatch)
       return null;
-    let [, p, a, c, k] = pMatch;
-    a = parseInt(a, 10);
-    c = parseInt(c, 10);
-    k = k.split("|");
-    const decodeBase36 = (num, rad) => {
-      const symbols = "0123456789abcdefghijklmnopqrstuvwxyz";
-      let res = "";
-      while (num > 0) {
-        res = symbols[num % rad] + res;
-        num = Math.floor(num / rad);
+    const payload = pMatch[1];
+    const radix = parseInt(pMatch[2], 10);
+    const symtab = pMatch[4].split("|");
+    const ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const decodeIndex = (word) => {
+      let value = 0;
+      for (let i = 0; i < word.length; i++) {
+        const digit = ALPHABET.indexOf(word[i]);
+        if (digit === -1 || digit >= radix)
+          return -1;
+        value = value * radix + digit;
       }
-      return res || "0";
+      return value;
     };
-    return p.replace(/\b\w+\b/g, (w) => {
-      const idx = parseInt(w, 36);
-      return idx < k.length && k[idx] ? k[idx] : decodeBase36(idx, a);
+    return payload.replace(/\b\w+\b/g, (word) => {
+      const idx = decodeIndex(word);
+      return idx >= 0 && idx < symtab.length && symtab[idx] ? symtab[idx] : word;
     });
   } catch (e) {
     return null;
@@ -565,6 +571,30 @@ function resolveLulusStream(embedUrl) {
     }
   });
 }
+function resolveMp4uploadStream(embedUrl) {
+  return __async(this, null, function* () {
+    try {
+      const html = yield fetchWithRetry(embedUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          Referer: "https://www.mp4upload.com/"
+        }
+      });
+      if (!html)
+        return null;
+      const m = html.match(/player\.src\(\{\s*type:\s*"video\/mp4",\s*src:\s*"([^"]+)"/) || html.match(/type:\s*"video\/mp4",\s*src:\s*"([^"]+)"/) || html.match(/"src"\s*:\s*"(https?:[^"]+\.mp4[^"]*)"/);
+      if (!m)
+        return null;
+      return {
+        url: m[1],
+        quality: "HD",
+        headers: { Referer: "https://www.mp4upload.com/" }
+      };
+    } catch (e) {
+      return null;
+    }
+  });
+}
 function resolveUqloadStream(embedUrl) {
   return __async(this, null, function* () {
     try {
@@ -672,20 +702,76 @@ function resolveGoodstreamStream(embedUrl) {
 }
 function resolveVimeosStream(embedUrl) {
   return __async(this, null, function* () {
+    const UA2 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
     try {
       const origin = getUrlOrigin(embedUrl);
       const html = yield fetchWithRetry(embedUrl, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          "User-Agent": UA2,
           Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           Referer: origin + "/"
         }
       }, 1, 12e3);
-      const url = extractUrlsetM3U8(html);
-      if (!url)
+      if (!html)
         return null;
-      const quality = yield detectQualityFromM3U8(url);
-      return { url, quality, headers: { Referer: origin + "/" } };
+      const headers = { "User-Agent": UA2 };
+      const fromSources = extractUrlsetM3U8(html);
+      if (fromSources) {
+        return { url: fromSources, quality: yield detectQualityFromM3U8(fromSources), headers };
+      }
+      const vimeoId = (html.match(/vimeo\.com\/video\/(\d+)/i) || embedUrl.match(/\/(\d{7,10})/) || [])[1];
+      if (vimeoId) {
+        try {
+          const cfg = yield fetchJson("https://player.vimeo.com/video/" + vimeoId + "/config", {
+            headers: { "User-Agent": UA2, Referer: embedUrl }
+          });
+          const files = cfg && cfg.request && cfg.request.files;
+          const hlsUrl = files && files.hls && files.hls.cdns && files.hls.cdns.default && files.hls.cdns.default.url;
+          if (hlsUrl)
+            return { url: hlsUrl, quality: "1080p", headers };
+          const prog = files && files.progressive;
+          if (prog && prog.length > 0) {
+            const best = prog.slice().sort(function(a, b) {
+              return (parseInt(b.quality, 10) || 0) - (parseInt(a.quality, 10) || 0);
+            })[0];
+            if (best && best.url)
+              return { url: best.url, quality: best.quality ? best.quality + "p" : "1080p", headers };
+          }
+        } catch (e) {
+        }
+      }
+      const direct = html.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/i);
+      if (direct) {
+        return { url: direct[0], quality: yield detectQualityFromM3U8(direct[0]), headers };
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  });
+}
+function resolveVideoappStream(embedUrl) {
+  return __async(this, null, function* () {
+    try {
+      const html = yield fetchWithRetry(embedUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          Referer: embedUrl
+        }
+      }, 1, 12e3);
+      if (!html)
+        return null;
+      const iframe = html.match(/<iframe[^>]*src=["']([^"']+)["']/i);
+      if (!iframe)
+        return null;
+      let iframeUrl = iframe[1];
+      if (iframeUrl.indexOf("//") === 0)
+        iframeUrl = "https:" + iframeUrl;
+      else if (iframeUrl.indexOf("http") !== 0)
+        return null;
+      if (!/vimeos|vms\.sh/i.test(iframeUrl))
+        return null;
+      return resolveVimeosStream(iframeUrl);
     } catch (e) {
       return null;
     }
@@ -796,10 +882,10 @@ function getEmbedResolver(url) {
   if (url.includes("voe.sx") || url.includes("cloudwindow-route.com")) {
     return resolveVoeStream;
   }
-  if (url.includes("hlswish") || url.includes("streamwish") || url.includes("vibuxer") || url.includes("strwish") || url.includes("hglink") || url.includes("ghbrisk") || url.includes("premilkyway") || url.includes("hgplaycdn")) {
+  if (url.includes("hlswish") || url.includes("streamwish") || url.includes("vibuxer") || url.includes("strwish") || url.includes("hglink") || url.includes("ghbrisk") || url.includes("premilkyway") || url.includes("hgplaycdn") || url.includes("waaw")) {
     return resolveHLSWishStream;
   }
-  if (url.includes("vidhide") || url.includes("dintezuvio") || url.includes("minochinos") || url.includes("dramiyos") || url.includes("dhcplay") || url.includes("smoothpre") || url.includes("dhtpre") || url.includes("vidspeeder") || url.includes("moorearn") || url.includes("travid") || url.includes("vidhidehub") || url.includes("vidhidevip") || url.includes("vidhidepre") || url.includes("kinoger") || url.includes("movearnpre") || url.includes("peytonepre") || url.includes("filelions")) {
+  if (url.includes("vidhide") || url.includes("dintezuvio") || url.includes("minochinos") || url.includes("dramiyos") || url.includes("dhcplay") || url.includes("smoothpre") || url.includes("dhtpre") || url.includes("vidspeeder") || url.includes("moorearn") || url.includes("travid") || url.includes("vidhidehub") || url.includes("vidhidevip") || url.includes("vidhidepre") || url.includes("kinoger") || url.includes("movearnpre") || url.includes("peytonepre") || url.includes("filelions") || url.includes("morencius")) {
     return resolveVidHideProStream;
   }
   if (url.includes("byse") || url.includes("filemoon") || url.includes("rapidvideo")) {
@@ -825,6 +911,12 @@ function getEmbedResolver(url) {
   }
   if (url.includes("doodstream") || url.includes("dsvplay") || url.includes("dood.to") || url.includes("dood.watch") || url.includes("dood.so")) {
     return resolveDoodStream;
+  }
+  if (url.includes("mp4upload")) {
+    return resolveMp4uploadStream;
+  }
+  if (url.includes("videoapp")) {
+    return resolveVideoappStream;
   }
   return null;
 }
@@ -879,7 +971,7 @@ function mapPlayerDomain(url) {
 }
 function isAllowed(name) {
   var n = (name || "").toLowerCase();
-  return n.indexOf("streamwish") !== -1 || n.indexOf("vidhide") !== -1 || n.indexOf("filelions") !== -1 || n.indexOf("vidhidepro") !== -1 || n.indexOf("voe") !== -1 || n.indexOf("uqload") !== -1 || n.indexOf("dood") !== -1 || n.indexOf("filemoon") !== -1 || n.indexOf("lulu") !== -1;
+  return n.indexOf("streamwish") !== -1 || n.indexOf("vidhide") !== -1 || n.indexOf("filelions") !== -1 || n.indexOf("vidhidepro") !== -1 || n.indexOf("voe") !== -1 || n.indexOf("uqload") !== -1 || n.indexOf("dood") !== -1 || n.indexOf("filemoon") !== -1 || n.indexOf("lulu") !== -1 || n.indexOf("netu") !== -1;
 }
 function fetchTmdb(tmdbId, type) {
   function lang(l) {
@@ -893,21 +985,36 @@ function fetchTmdb(tmdbId, type) {
       return null;
     });
   }
-  return lang("es-MX").then(function(es) {
-    return lang("es-ES").then(function(eses) {
-      return lang("en-US").then(function(en) {
-        var latino = es && (es.title || es.name) || "";
-        var cast = eses && (eses.title || eses.name) || "";
-        var ingles = en && (en.title || en.name) || "";
-        var dateStr = type === "movie" ? es && es.release_date || en && en.release_date || "" : es && es.first_air_date || en && en.first_air_date || "";
-        var year = dateStr && dateStr.length >= 4 ? dateStr.substring(0, 4) : null;
-        return { latino, castellano: cast, ingles, year };
-      });
-    });
+  return Promise.all([lang("es-MX"), lang("es-ES"), lang("en-US")]).then(function(rs) {
+    var es = rs[0], eses = rs[1], en = rs[2];
+    var latino = es && (es.title || es.name) || "";
+    var cast = eses && (eses.title || eses.name) || "";
+    var ingles = en && (en.title || en.name) || "";
+    var dateStr = type === "movie" ? es && es.release_date || en && en.release_date || "" : es && es.first_air_date || en && en.first_air_date || "";
+    var year = dateStr && dateStr.length >= 4 ? dateStr.substring(0, 4) : null;
+    return { latino, castellano: cast, ingles, year };
   });
 }
 function fetchPage(url) {
   return fetchText(url, { headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "es-ES,es;q=0.9,en;q=0.8" } }).catch(function() {
+    return null;
+  });
+}
+function fetchPagina(url) {
+  var headers = { "User-Agent": UA, Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "es-ES,es;q=0.9,en;q=0.8" };
+  return fetchWithTimeout(url, { headers }).then(function(res) {
+    if (!res.ok)
+      return null;
+    var cookie = null;
+    try {
+      cookie = res.headers && res.headers.get ? res.headers.get("set-cookie") : null;
+    } catch (e) {
+      cookie = null;
+    }
+    return res.text().then(function(html) {
+      return { html, cookie };
+    });
+  }).catch(function() {
     return null;
   });
 }
@@ -944,8 +1051,17 @@ function groupsFromVideos(videos) {
   }
   return out;
 }
-function resolvePlayer(sourceUrl) {
-  return fetchPage(sourceUrl).then(function(html) {
+function resolvePlayer(playerUrl, pagina) {
+  var headers = { "User-Agent": UA, Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "es-ES,es;q=0.9,en;q=0.8" };
+  if (pagina && pagina.url)
+    headers.Referer = pagina.url;
+  if (pagina && pagina.cookie)
+    headers.Cookie = pagina.cookie;
+  return fetchWithTimeout(playerUrl, { headers }).then(function(res) {
+    if (!res.ok)
+      return null;
+    return res.text();
+  }).then(function(html) {
     if (!html)
       return null;
     var m = html.match(/var url = '([^']+)'/) || html.match(/var url = "([^"]+)"/);
@@ -1010,9 +1126,9 @@ function extractStreams(tmdbId, mediaType, season, episode) {
     function tryNext(i) {
       if (i >= candidates.length)
         return searchFallback();
-      return fetchPage(candidates[i]).then(function(html) {
-        if (html && html.indexOf("__NEXT_DATA__") !== -1 && html.indexOf(needle) !== -1) {
-          return { html };
+      return fetchPagina(candidates[i]).then(function(found) {
+        if (found && found.html && found.html.indexOf("__NEXT_DATA__") !== -1 && found.html.indexOf(needle) !== -1) {
+          return { html: found.html, url: candidates[i], cookie: found.cookie || null };
         }
         return tryNext(i + 1);
       });
@@ -1037,9 +1153,9 @@ function extractStreams(tmdbId, mediaType, season, episode) {
               var slugName = item.slug && item.slug.name;
               if (slugName) {
                 var url = isMovie ? BASE + "/ver-pelicula/" + slugName : BASE + "/ver-serie/" + slugName;
-                return fetchPage(url).then(function(h2) {
-                  if (h2 && h2.indexOf("__NEXT_DATA__") !== -1 && h2.indexOf(needle) !== -1)
-                    return { html: h2 };
+                return fetchPagina(url).then(function(found2) {
+                  if (found2 && found2.html && found2.html.indexOf("__NEXT_DATA__") !== -1 && found2.html.indexOf(needle) !== -1)
+                    return { html: found2.html, url, cookie: found2.cookie || null };
                   return sq(i + 1);
                 });
               }
@@ -1069,7 +1185,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
             if (!isAllowed(vid.cyberlocker))
               return;
             jobs.push(
-              resolvePlayer(vid.url).then(function(resolved) {
+              resolvePlayer(vid.url, found).then(function(resolved) {
                 if (!resolved)
                   return null;
                 var fixed = mapDomain(resolved);

@@ -55,27 +55,32 @@ export async function pedirPagina(url, extra) {
 }
 
 // Títulos (es-MX/es-ES/en-US) + año + imdb_id (para la vía rápida /vidurl/<imdb>/).
+// Nuvio solo pasa tmdbId/mediaType/season/episode: el título se resuelve aquí vía TMDB.
+// Las 3 lenguas + external_ids van en paralelo (antes eran 4 fetches en serie).
 export async function datosTMDB(id, tipo) {
+  var idiomas = ['es-MX', 'es-ES', 'en-US'];
+  function pedir(url) {
+    return fetchJson(url, { headers: { 'User-Agent': USER_AGENT } }).then(function (r) { return r; }, function () { return null; });
+  }
+  var promesas = [];
+  for (var i = 0; i < idiomas.length; i++) {
+    promesas.push(pedir('https://api.themoviedb.org/3/' + tipo + '/' + id + '?api_key=' + TMDB_API_KEY + '&language=' + idiomas[i]));
+  }
+  promesas.push(pedir('https://api.themoviedb.org/3/' + tipo + '/' + id + '/external_ids?api_key=' + TMDB_API_KEY));
+  var resultados = await Promise.all(promesas);
   var titulos = [];
   var year = '';
-  var imdbId = '';
-  var idiomas = ['es-MX', 'es-ES', 'en-US'];
-  for (var i = 0; i < idiomas.length; i++) {
-    try {
-      var url = 'https://api.themoviedb.org/3/' + tipo + '/' + id + '?api_key=' + TMDB_API_KEY + '&language=' + idiomas[i];
-      var res = await fetchJson(url, { headers: { 'User-Agent': USER_AGENT } });
-      var t = tipo === 'movie' ? res.title : res.name;
-      var o = tipo === 'movie' ? res.original_title : res.original_name;
-      if (t && titulos.indexOf(t) === -1) titulos.push(t);
-      if (o && titulos.indexOf(o) === -1) titulos.push(o);
-      if (!year) year = String(res.release_date || res.first_air_date || '').substring(0, 4);
-    } catch (e) {}
+  for (var j = 0; j < idiomas.length; j++) {
+    var res = resultados[j];
+    if (!res) continue;
+    var t = tipo === 'movie' ? res.title : res.name;
+    var o = tipo === 'movie' ? res.original_title : res.original_name;
+    if (t && titulos.indexOf(t) === -1) titulos.push(t);
+    if (o && titulos.indexOf(o) === -1) titulos.push(o);
+    if (!year) year = String(res.release_date || res.first_air_date || '').substring(0, 4);
   }
-  try {
-    var extUrl = 'https://api.themoviedb.org/3/' + tipo + '/' + id + '/external_ids?api_key=' + TMDB_API_KEY;
-    var ext = await fetchJson(extUrl, { headers: { 'User-Agent': USER_AGENT } });
-    imdbId = ext && ext.imdb_id ? ext.imdb_id : '';
-  } catch (e) {}
+  var ext = resultados[idiomas.length];
+  var imdbId = ext && ext.imdb_id ? ext.imdb_id : '';
   return titulos.length ? { titles: titulos, year: year, imdbId: imdbId } : null;
 }
 

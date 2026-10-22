@@ -3,7 +3,8 @@ import { getEmbedResolver, mapDomain } from '../shared/embedResolvers.js';
 
 const TMDB_API_KEY = '1f54bd990f1cdfb230adb312546d765d';
 const API_URL = 'https://fanpelis.to/api/rest/';
-const API_FALLBACK = 'https://fanpelis.to/api/rest/';
+// Sin fallback: no existe un dominio de respaldo verificado para fanpelis.to
+// (el antiguo API_FALLBACK era la misma URL, un fallback falso).
 
 var ACCENT_MAP = { 'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'ü': 'u', 'ñ': 'n', 'Á': 'a', 'É': 'e', 'Í': 'i', 'Ó': 'o', 'Ú': 'u', 'Ü': 'u', 'Ñ': 'n', 'à': 'a', 'è': 'e', 'ì': 'i', 'ò': 'o', 'ù': 'u', 'â': 'a', 'ê': 'e', 'î': 'i', 'ô': 'o', 'û': 'u', 'ä': 'a', 'ë': 'e', 'ï': 'i', 'ö': 'o', 'ç': 'c', 'ã': 'a', 'õ': 'o' };
 function stripAccents(s) { return (s || '').replace(/[^\x00-\x7F]/g, function(c) { return ACCENT_MAP[c] || ''; }); }
@@ -40,33 +41,32 @@ function decodeEntities(s) {
 }
 
 function searchWords(media) {
-  var all = normalizeText((media.originalTitle || '') + ' ' + (media.title || ''));
-  var words = all.replace(/[^a-z0-9]/g, ' ').split(' ').filter(Boolean);
-  var unique = {}, out = [];
-  for (var i = 0; i < words.length; i++) {
-    var w = words[i];
-    if (w.length < 3 || STOPWORDS[w] || unique[w]) continue;
-    unique[w] = true;
-    out.push(w);
+  // Reescritura limpia (2026-10-22): la búsqueda anterior ordenaba por
+  // longitud y recortaba a 2 palabras, así que para Duna: Parte dos
+  // probaba "parte" y "dune" y nunca "duna". Pero la API busca por palabra
+  // suelta y su página 1 trae 16 resultados por fecha: "parte" entierra el
+  // post fuera de la página 1 y "dune" solo trae Dune: Prophecy. En cambio
+  // "duna" lo trae en el primer resultado. Por eso se prueban las palabras
+  // del título localizado, en orden de aparición, y luego las del original.
+  var out = [];
+  var seen = {};
+  var titles = [media.title, media.originalTitle];
+  for (var t = 0; t < titles.length; t++) {
+    var words = normalizeText(titles[t] || '').replace(/[^a-z0-9]/g, ' ').split(' ').filter(Boolean);
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i];
+      if (w.length < 3 || STOPWORDS[w] || seen[w]) continue;
+      seen[w] = true;
+      out.push(w);
+    }
   }
-  // Longest first: most distinctive word queried first.
-  out.sort(function(a, b) { return b.length - a.length; });
-  return out.slice(0, 3);
+  return out.slice(0, 4);
 }
 
 function api(path) {
   return fetchJson(API_URL + path).then(function(res) {
     if (!res || res.error) throw new Error('Fanpelis API error');
     return res.data;
-  }).catch(function(e) {
-    // Try fallback domain on network/HTTP error
-    if (API_FALLBACK !== API_URL) {
-      return fetchJson(API_FALLBACK + path).then(function(res2) {
-        if (!res2 || res2.error) throw new Error('Fanpelis API error');
-        return res2.data;
-      });
-    }
-    throw e;
   });
 }
 
@@ -111,28 +111,53 @@ function pickPost(posts, media, wantTv, ignoreYear) {
 }
 
 function resolveEmbeds(embeds) {
-  var streams = [];
-  var jobs = (embeds || []).map(function(e) {
+  // Reescritura limpia (2026-10-22): resolver en orden de prioridad y
+  // parar en el primer stream real. La versión anterior lanzaba todos los
+  // embeds en paralelo, pero el arnés ejecuta esos jobs en serie: cada
+  // job lento (voe, filemoon, videoapp con token) sumaba decenas de
+  // segundos y la película llegaba a 71 s y la serie colgaba a 90 s,
+  // aunque el primer embed bueno (vimeos) ya había resuelto. Con parada
+  // temprana, el caso bueno cuesta solo TMDB + búsqueda + player +
+  // el primer resolver que acierta. Los hosts caídos se saltan de
+  // entrada (goodstream 522, hlswish/streamwish sin conexión).
+  var DEAD_HOSTS = /goodstream|hlswish|streamwish|vibuxer|hglink|ghbrisk|premilkyway/i;
+  var PRIORITY = ['vimeos', 'voe', 'filemoon', 'videoapp'];
+  function rank(url) {
+    for (var i = 0; i < PRIORITY.length; i++) {
+      if (url.indexOf(PRIORITY[i]) !== -1) return i;
+    }
+    return PRIORITY.length;
+  }
+  var list = (embeds || []).filter(function (e) {
     var url = e.url || '';
-    if (!url || url.indexOf('magnet:') === 0) return Promise.resolve();
+    if (!url || url.indexOf('magnet:') === 0) return false;
     var fixedUrl = mapDomain(url);
+    if (DEAD_HOSTS.test(fixedUrl)) return false;
+    return !!getEmbedResolver(fixedUrl);
+  }).sort(function (a, b) {
+    return rank(mapDomain(a.url)) - rank(mapDomain(b.url));
+  });
+  function tryNext(i) {
+    if (i >= list.length) return Promise.resolve([]);
+    var e = list[i];
+    var fixedUrl = mapDomain(e.url);
     var resolver = getEmbedResolver(fixedUrl);
-    if (!resolver) return Promise.resolve();
     var lang = e.lang || 'LAT';
     var q = e.quality || 'HD';
-    return resolver(fixedUrl).then(function(result) {
+    return resolver(fixedUrl).then(function (result) {
       if (result && result.url) {
-        streams.push({
+        return [{
           name: 'Fanpelis (' + lang + ')',
           title: (result.quality || q) + ' · ' + lang + ' · ' + fixedUrl.split('/')[2],
           url: result.url,
           quality: result.quality || q,
           headers: result.headers,
-        });
+        }];
       }
-    }).catch(function() {});
-  });
-  return Promise.all(jobs).then(function() { return streams; });
+      return tryNext(i + 1);
+    }).catch(function () { return tryNext(i + 1); });
+  }
+  return tryNext(0);
 }
 
 function movieStreams(postId) {
@@ -162,24 +187,35 @@ export function extractStreams(tmdbId, mediaType, season, episode) {
   var wantTv = tmdbType === 'tv';
   return getMediaTitle(tmdbId, tmdbType)
     .then(function(media) {
-      // The API only matches single-word queries; try distinctive words.
+      // The API only matches single-word queries; try the localized
+      // title's words in order, stopping only on an exact title match.
+      // A substring match must NOT stop the search: a short post title
+      // (e.g. "Duna") is a substring of the wanted title and would freeze
+      // the search on the wrong post.
       var words = searchWords(media);
       if (words.length === 0) return [];
       var posts = [];
       var seen = {};
-      var chain = Promise.resolve();
-      words.forEach(function(w) {
-        chain = chain.then(function() {
-          var path = 'search?query=' + encodeURIComponent(w) + '&page=1&post_type=movies,tvshows,animes&posts_per_page=16';
-          return api(path).then(function(data) {
-            var list = (data && data.posts) || [];
-            for (var i = 0; i < list.length; i++) {
-              if (!seen[list[i]._id]) { seen[list[i]._id] = true; posts.push(list[i]); }
-            }
-          }).catch(function() {});
+      var no = normalizeText(media.originalTitle || '');
+      var nt = normalizeText(media.title || '');
+      function tryWord(i) {
+        if (i >= words.length) return Promise.resolve();
+        var path = 'search?query=' + encodeURIComponent(words[i]) + '&page=1&post_type=movies,tvshows,animes&posts_per_page=16';
+        return api(path).then(function(data) {
+          var list = (data && data.posts) || [];
+          for (var j = 0; j < list.length; j++) {
+            if (!seen[list[j]._id]) { seen[list[j]._id] = true; posts.push(list[j]); }
+          }
+        }).catch(function() {}).then(function() {
+          var best = pickPost(posts, media, wantTv, false);
+          if (best) {
+            var pb = normalizeText(stripYear(decodeEntities(best.title || '')));
+            if (pb === no || pb === nt) return;
+          }
+          return tryWord(i + 1);
         });
-      });
-      return chain.then(function() {
+      }
+      return tryWord(0).then(function() {
         var best = pickPost(posts, media, wantTv, false);
         // Future/unreleased (2026) often indexed without year tag - retry ignoring year
         if (!best) best = pickPost(posts, media, wantTv, true);

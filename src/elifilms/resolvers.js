@@ -79,10 +79,7 @@ export function limpiarCabecerasVimeos(url, cabeceras) {
 // que hoy responden y se para en cuanto uno da el m3u8.
 var ESPEJOS_WISH = [
   'https://hanerix.com/e/',
-  'https://embedwish.com/e/',
-  'https://hglink.to/e/',
-  'https://awish.pro/e/',
-  'https://strwish.com/e/'
+  'https://embedwish.com/e/'
 ];
 
 async function resolverStreamwish(embedUrl, vencido) {

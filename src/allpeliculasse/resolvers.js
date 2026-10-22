@@ -85,9 +85,7 @@ export function limpiarCabecerasVimeos(url, cabeceras) {
 // sacó de la lista; hlswish.com rechaza la conexión. Quedan los 4 espejos que hoy dan 200.
 var ESPEJOS_WISH = [
   'https://hanerix.com/e/',
-  'https://embedwish.com/e/',
-  'https://hglink.to/e/',
-  'https://strwish.com/e/'
+  'https://embedwish.com/e/'
 ];
 
 async function resolverStreamwish(embedUrl, vencido) {

@@ -20,7 +20,7 @@ import { datosTMDB, buscarPosts, buscarCapitulo, embedsDe, limpiarTitulo, consul
 import { resolverEmbed, limpiarCabecerasVimeos } from './resolvers.js';
 import { calidadDe, servidorDe, tituloStream } from './labels.js';
 
-var PRESUPUESTO_MS = 45000;
+var PRESUPUESTO_MS = 55000;
 
 function crearVencido(ms) {
   var t0 = Date.now();
@@ -117,7 +117,29 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     var embeds = await embedsDe(objetivo);
     if (!embeds.length) return [];
 
-    // 4) Resolver solo latino/subtitulado
+    // 4) Resolver solo latino/subtitulado, con embeds sin resolver fuera y
+    // ordenados: Vimeos primero (el que siempre resuelve), luego StreamWish,
+    // luego VOE y luego VidHide. Antes el barrido de StreamWish (2º en el
+    // player) se comía el presupuesto antes de llegar a Vimeos (5º).
+    function grupoEmbed(url) {
+      var u = String(url || '').toLowerCase();
+      if (u.indexOf('vimeos') !== -1 || u.indexOf('vms.sh') !== -1) return 0;
+      if (u.indexOf('hlswish') !== -1 || u.indexOf('streamwish') !== -1 || u.indexOf('hglink') !== -1 ||
+        u.indexOf('embedwish') !== -1 || u.indexOf('strwish') !== -1 || u.indexOf('hanerix') !== -1 ||
+        u.indexOf('awish') !== -1) return 1;
+      if (u.indexOf('voe') !== -1) return 2;
+      if (u.indexOf('vidhide') !== -1) return 3;
+      return 4;
+    }
+    var embedsOrdenados = [];
+    for (var g = 0; g <= 4; g++) {
+      for (var o = 0; o < embeds.length; o++) {
+        var ou = String((embeds[o] || {}).url || '').toLowerCase();
+        if (ou.indexOf('goodstream') !== -1 || ou.indexOf('filemoon') !== -1 || ou.indexOf('videoapp') !== -1) continue;
+        if (grupoEmbed(embeds[o].url) === g) embedsOrdenados.push(embeds[o]);
+      }
+    }
+    embeds = embedsOrdenados;
     var streams = [];
     for (var e = 0; e < embeds.length; e++) {
       var embed = embeds[e] || {};

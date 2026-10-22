@@ -1,6 +1,6 @@
 /**
  * pelisplusto - Built from src/pelisplusto/
- * Generated: 2026-10-16T21:46:01.333Z
+ * Generated: 2026-10-22T08:18:09.207Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -348,22 +348,23 @@ function unpackPacked(html) {
     const pMatch = html.match(/eval\(function\(p,a,c,k,e,[premd]\)\{.*?\}\s*\('([\s\S]*?)',\s*(\d+),\s*(\d+),\s*'([\s\S]*?)'\.split\('\|'\)/);
     if (!pMatch)
       return null;
-    let [, p, a, c, k] = pMatch;
-    a = parseInt(a, 10);
-    c = parseInt(c, 10);
-    k = k.split("|");
-    const decodeBase36 = (num, rad) => {
-      const symbols = "0123456789abcdefghijklmnopqrstuvwxyz";
-      let res = "";
-      while (num > 0) {
-        res = symbols[num % rad] + res;
-        num = Math.floor(num / rad);
+    const payload = pMatch[1];
+    const radix = parseInt(pMatch[2], 10);
+    const symtab = pMatch[4].split("|");
+    const ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const decodeIndex = (word) => {
+      let value = 0;
+      for (let i = 0; i < word.length; i++) {
+        const digit = ALPHABET.indexOf(word[i]);
+        if (digit === -1 || digit >= radix)
+          return -1;
+        value = value * radix + digit;
       }
-      return res || "0";
+      return value;
     };
-    return p.replace(/\b\w+\b/g, (w) => {
-      const idx = parseInt(w, 36);
-      return idx < k.length && k[idx] ? k[idx] : decodeBase36(idx, a);
+    return payload.replace(/\b\w+\b/g, (word) => {
+      const idx = decodeIndex(word);
+      return idx >= 0 && idx < symtab.length && symtab[idx] ? symtab[idx] : word;
     });
   } catch (e) {
     return null;
@@ -721,20 +722,76 @@ function resolveGoodstreamStream(embedUrl) {
 }
 function resolveVimeosStream(embedUrl) {
   return __async(this, null, function* () {
+    const UA2 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
     try {
       const origin = getUrlOrigin(embedUrl);
       const html = yield fetchWithRetry(embedUrl, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          "User-Agent": UA2,
           Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           Referer: origin + "/"
         }
       }, 1, 12e3);
-      const url = extractUrlsetM3U8(html);
-      if (!url)
+      if (!html)
         return null;
-      const quality = yield detectQualityFromM3U8(url);
-      return { url, quality, headers: { Referer: origin + "/" } };
+      const headers = { "User-Agent": UA2 };
+      const fromSources = extractUrlsetM3U8(html);
+      if (fromSources) {
+        return { url: fromSources, quality: yield detectQualityFromM3U8(fromSources), headers };
+      }
+      const vimeoId = (html.match(/vimeo\.com\/video\/(\d+)/i) || embedUrl.match(/\/(\d{7,10})/) || [])[1];
+      if (vimeoId) {
+        try {
+          const cfg = yield fetchJson("https://player.vimeo.com/video/" + vimeoId + "/config", {
+            headers: { "User-Agent": UA2, Referer: embedUrl }
+          });
+          const files = cfg && cfg.request && cfg.request.files;
+          const hlsUrl = files && files.hls && files.hls.cdns && files.hls.cdns.default && files.hls.cdns.default.url;
+          if (hlsUrl)
+            return { url: hlsUrl, quality: "1080p", headers };
+          const prog = files && files.progressive;
+          if (prog && prog.length > 0) {
+            const best = prog.slice().sort(function(a, b) {
+              return (parseInt(b.quality, 10) || 0) - (parseInt(a.quality, 10) || 0);
+            })[0];
+            if (best && best.url)
+              return { url: best.url, quality: best.quality ? best.quality + "p" : "1080p", headers };
+          }
+        } catch (e) {
+        }
+      }
+      const direct = html.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/i);
+      if (direct) {
+        return { url: direct[0], quality: yield detectQualityFromM3U8(direct[0]), headers };
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  });
+}
+function resolveVideoappStream(embedUrl) {
+  return __async(this, null, function* () {
+    try {
+      const html = yield fetchWithRetry(embedUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          Referer: embedUrl
+        }
+      }, 1, 12e3);
+      if (!html)
+        return null;
+      const iframe = html.match(/<iframe[^>]*src=["']([^"']+)["']/i);
+      if (!iframe)
+        return null;
+      let iframeUrl = iframe[1];
+      if (iframeUrl.indexOf("//") === 0)
+        iframeUrl = "https:" + iframeUrl;
+      else if (iframeUrl.indexOf("http") !== 0)
+        return null;
+      if (!/vimeos|vms\.sh/i.test(iframeUrl))
+        return null;
+      return resolveVimeosStream(iframeUrl);
     } catch (e) {
       return null;
     }
@@ -877,6 +934,9 @@ function getEmbedResolver(url) {
   }
   if (url.includes("mp4upload")) {
     return resolveMp4uploadStream;
+  }
+  if (url.includes("videoapp")) {
+    return resolveVideoappStream;
   }
   return null;
 }
@@ -1034,6 +1094,80 @@ function resolveEmbed69Servers(embedUrl) {
   });
 }
 
+// src/pelisplusto/vidhide.js
+var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+var ALFABETO = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+function esVidhide(url) {
+  var u = String(url || "").toLowerCase();
+  return u.indexOf("vidhide") !== -1 || u.indexOf("morencius") !== -1 || u.indexOf("filelions") !== -1 || u.indexOf("dintezuvio") !== -1 || u.indexOf("vidhidehub") !== -1 || u.indexOf("vidhidevip") !== -1 || u.indexOf("vidhidepre") !== -1 || u.indexOf("kinoger") !== -1 || u.indexOf("movearnpre") !== -1 || u.indexOf("peytonepre") !== -1;
+}
+function origenDe(url) {
+  var m = String(url || "").match(/^(https?:\/\/[^\/]+)/);
+  return m ? m[1] : "";
+}
+function desempacarEdwards(html) {
+  var m = html.match(/eval\(function\(p,a,c,k,e,[a-z]\)\{[\s\S]*?\}\s*\('([\s\S]*?)',\s*(\d+),\s*(\d+),\s*'([\s\S]*?)'\.split\('\|'\)/);
+  if (!m)
+    return null;
+  var payload = m[1];
+  var radix = parseInt(m[2], 10);
+  var tabla = m[4].split("|");
+  return payload.replace(/\b\w+\b/g, function(palabra) {
+    var valor = 0;
+    for (var i = 0; i < palabra.length; i++) {
+      var digito = ALFABETO.indexOf(palabra.charAt(i));
+      if (digito === -1 || digito >= radix)
+        return palabra;
+      valor = valor * radix + digito;
+    }
+    if (valor < 0 || valor >= tabla.length || !tabla[valor])
+      return palabra;
+    return tabla[valor];
+  });
+}
+function extraerDeLinks(texto, origen) {
+  var m = texto.match(/var links\s*=\s*\{([\s\S]*?)\};/);
+  if (m) {
+    var cuerpo = m[1];
+    var orden = ["hls4", "hls3", "hls2"];
+    for (var i = 0; i < orden.length; i++) {
+      var mm = cuerpo.match(new RegExp('"' + orden[i] + '"\\s*:\\s*"([^"]+)"'));
+      if (mm && mm[1]) {
+        var url = mm[1];
+        if (url.indexOf("http") !== 0)
+          url = origen + (url.charAt(0) === "/" ? "" : "/") + url;
+        return url;
+      }
+    }
+  }
+  var directo = texto.match(/https?:\/\/[^"'\s\\]+\.m3u8[^"'\s\\]*/i);
+  return directo ? directo[0] : null;
+}
+function resolverVidhide(embedUrl) {
+  var origen = origenDe(embedUrl);
+  return fetchText(embedUrl, {
+    headers: { Referer: "https://embed69.org/", "User-Agent": UA, "Accept-Language": "es-MX,es;q=0.9" }
+  }).then(function(html) {
+    if (!html)
+      return null;
+    var desempacado = desempacarEdwards(html);
+    var url = null;
+    if (desempacado)
+      url = extraerDeLinks(desempacado, origen);
+    if (!url)
+      url = extraerDeLinks(html, origen);
+    if (!url || url.indexOf("http") !== 0)
+      return null;
+    return {
+      url,
+      quality: "HD",
+      headers: { Referer: origen + "/", Origin: origen }
+    };
+  }).catch(function() {
+    return null;
+  });
+}
+
 // src/pelisplusto/extractor.js
 var TMDB_API_KEY = "1f54bd990f1cdfb230adb312546d765d";
 var MAIN_URL2 = "https://pelisplushd.bz";
@@ -1125,7 +1259,7 @@ function searchSite(query) {
     return [];
   });
 }
-function scoreCandidates(candidates, media, expectedKind) {
+function scoreAll(candidates, media, expectedKind) {
   var no = normalizeText(media.originalTitle || "");
   var nt = normalizeText(media.title || "");
   var words = (no + " " + nt).split(" ").filter(Boolean);
@@ -1136,7 +1270,7 @@ function scoreCandidates(candidates, media, expectedKind) {
     unique[w2] = true;
     return true;
   });
-  var best = null, bestScore = -1;
+  var puntuados = [];
   for (var i = 0; i < candidates.length; i++) {
     var c = candidates[i];
     var nc = normalizeText(c.title);
@@ -1166,14 +1300,15 @@ function scoreCandidates(candidates, media, expectedKind) {
       score += 5;
     if (c.kind === expectedKind)
       score += 3;
-    if (score > bestScore) {
-      bestScore = score;
-      best = c;
-    }
+    if (score >= 15)
+      puntuados.push({ c, score });
   }
-  if (!best || bestScore < 15)
-    return null;
-  return best;
+  puntuados.sort(function(a2, b2) {
+    return b2.score - a2.score;
+  });
+  return puntuados.map(function(x) {
+    return x.c;
+  });
 }
 function getServersFromDetail(html) {
   var videoMap = {};
@@ -1220,6 +1355,25 @@ function getServersFromDetail(html) {
   });
 }
 function resolverUnEmbed(embedUrl, label, lang) {
+  var bajo = String(embedUrl || "").toLowerCase();
+  if (bajo.indexOf("voe.sx") !== -1)
+    return Promise.resolve(null);
+  if (esVidhide(embedUrl)) {
+    return resolverVidhide(embedUrl).then(function(result) {
+      if (result && result.url) {
+        return {
+          name: "Pelisplusto (" + label + ")",
+          title: (result.quality || "HD") + " \xB7 " + lang + " \xB7 " + label,
+          url: result.url,
+          quality: result.quality || "HD",
+          headers: result.headers
+        };
+      }
+      return null;
+    }).catch(function() {
+      return null;
+    });
+  }
   var fixedUrl = mapDomain(embedUrl);
   var resolver = getEmbedResolver(fixedUrl);
   if (!resolver)
@@ -1240,29 +1394,44 @@ function resolverUnEmbed(embedUrl, label, lang) {
   });
 }
 function resolveServers(servers) {
-  var streams = [];
-  var promises = servers.map(function(s) {
-    if (s.src.indexOf("embed69.org/") !== -1) {
-      return resolveEmbed69Servers(s.src).then(function(targets) {
-        var inner = targets.map(function(t) {
-          return resolverUnEmbed(t.url, t.label, t.lang);
-        });
-        return Promise.all(inner).then(function(resolved) {
-          resolved.forEach(function(r) {
-            if (r)
-              streams.push(r);
+  var vidhide = [];
+  var resto = [];
+  for (var i = 0; i < servers.length; i++) {
+    if (esVidhide(servers[i].src))
+      vidhide.push(servers[i]);
+    else
+      resto.push(servers[i]);
+  }
+  function resolverLista(lista) {
+    var streams = [];
+    var promises = lista.map(function(s) {
+      if (s.src.indexOf("embed69.org/") !== -1) {
+        return resolveEmbed69Servers(s.src).then(function(targets) {
+          var inner = targets.map(function(t) {
+            return resolverUnEmbed(t.url, t.label, t.lang);
           });
+          return Promise.all(inner).then(function(resolved) {
+            resolved.forEach(function(r) {
+              if (r)
+                streams.push(r);
+            });
+          });
+        }).catch(function() {
         });
-      }).catch(function() {
+      }
+      return resolverUnEmbed(s.src, s.label, "LAT").then(function(r) {
+        if (r)
+          streams.push(r);
       });
-    }
-    return resolverUnEmbed(s.src, s.label, "LAT").then(function(r) {
-      if (r)
-        streams.push(r);
     });
-  });
-  return Promise.all(promises).then(function() {
-    return streams;
+    return Promise.all(promises).then(function() {
+      return streams;
+    });
+  }
+  return resolverLista(vidhide).then(function(streams) {
+    if (streams.length)
+      return streams;
+    return resolverLista(resto);
   });
 }
 function getMovieStreams(slug) {
@@ -1298,22 +1467,27 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       queries.push(media.title);
     if (queries.length === 0)
       return [];
-    var all = [];
-    var chain = Promise.resolve();
-    queries.forEach(function(q) {
-      chain = chain.then(function() {
-        return searchSite(q).then(function(c) {
-          all = all.concat(c);
-        });
+    return Promise.all(queries.map(function(q) {
+      return searchSite(q);
+    })).then(function(listas) {
+      var all = [];
+      listas.forEach(function(c) {
+        all = all.concat(c);
       });
-    });
-    return chain.then(function() {
-      var best = scoreCandidates(all, media, expectedKind);
-      if (!best)
+      var ordenados = scoreAll(all, media, expectedKind);
+      if (!ordenados.length)
         return [];
-      if (expectedKind === "movie")
-        return getMovieStreams(best.slug);
-      return getEpisodeStreams(best.slug, season || 1, episode || 1);
+      function probar(i) {
+        if (i >= ordenados.length)
+          return [];
+        var siguiente = expectedKind === "movie" ? getMovieStreams(ordenados[i].slug) : getEpisodeStreams(ordenados[i].slug, season || 1, episode || 1);
+        return siguiente.then(function(streams) {
+          if (streams && streams.length)
+            return streams;
+          return probar(i + 1);
+        });
+      }
+      return probar(0);
     });
   }).catch(function(err) {
     console.error("[Pelisplusto] Error: " + (err && err.message ? err.message : err));
@@ -1457,13 +1631,6 @@ function filterWorkingStreams(streams, opts) {
     return uniq;
   });
 }
-function withWorkingStreams(extractPromise) {
-  return Promise.resolve(extractPromise).then(function(streams) {
-    return filterWorkingStreams(streams);
-  }).catch(function() {
-    return [];
-  });
-}
 
 // src/pelisplusto/index.js
 function withTimeout(promise, ms) {
@@ -1478,9 +1645,22 @@ function withTimeout(promise, ms) {
     })
   ]);
 }
+function validarConFailOpen(promesaStreams) {
+  return Promise.resolve(promesaStreams).then(function(streams) {
+    return filterWorkingStreams(streams).then(function(vivos) {
+      if (vivos.length)
+        return vivos;
+      if (streams && streams.length)
+        return streams;
+      return [];
+    }).catch(function() {
+      return streams || [];
+    });
+  });
+}
 function getStreams(tmdbId, mediaType, season, episode) {
   return withTimeout(
-    withWorkingStreams(extractStreams(tmdbId, mediaType, season, episode)),
+    validarConFailOpen(extractStreams(tmdbId, mediaType, season, episode)),
     4e4
   );
 }

@@ -556,15 +556,9 @@ var require_hlswish = __commonJS({
           const rawId = url.split("/").pop().replace(/\.html$/, "");
           const urlObj = parseUrl(url);
           const mirrors = [
-            `https://hanerix.com/e/${rawId}`,
-            `https://embedwish.com/e/${rawId}`,
-            `https://hglink.to/e/${rawId}`,
             url,
             `https://streamwish.to/e/${rawId}`,
-            `https://awish.pro/e/${rawId}`,
-            `https://strwish.com/e/${rawId}`,
-            `https://wishfast.top/e/${rawId}`,
-            `https://sfastwish.com/e/${rawId}`
+            `https://embedwish.com/e/${rawId}`
           ];
           console.log(`[StreamWish] Race-Resolving v7.9.4: ${rawId} (${mirrors.length} mirrors)`);
           const validResult = yield new Promise((resolveRace) => {
@@ -2681,18 +2675,24 @@ var require_extractor = __commonJS({
             console.log("[PelisPanda] Fall\xF3 obtenci\xF3n de t\xEDtulo.");
             return [];
           }
-          const cleanTitle = searchTitle.split(" ").slice(0, 3).join(" ");
-          console.log(`[PelisPanda] Consultando API: ${cleanTitle}`);
-          const searchUrl = `https://pelispanda.org/wp-json/wpreact/v1/search?query=${encodeURIComponent(cleanTitle)}`;
-          const searchData = yield fetchJson(searchUrl, {
-            headers: { "Referer": "https://pelispanda.org/" }
-          });
-          if (!searchData || !searchData.results)
-            return [];
           const targetType = mediaType === "movie" ? "pelicula" : "serie";
-          let movieMatch = searchData.results.find((r) => r.tmdb_id == tmdbId && r.type === targetType);
-          if (!movieMatch)
-            movieMatch = searchData.results.find((r) => r.type === targetType);
+          // Dos intentos, ambos desde el mismo título TMDB: 1) exacto;
+          // 2) solo si el exacto no da match por tmdb_id, las 3 primeras
+          // palabras. Sin match por tmdb_id no hay ficha: el viejo
+          // "primer resultado del tipo" devolvía títulos ajenos.
+          const intentos = [searchTitle];
+          const corto = searchTitle.split(" ").slice(0, 3).join(" ");
+          if (corto && corto !== searchTitle) intentos.push(corto);
+          let movieMatch = null;
+          for (let qi = 0; qi < intentos.length && !movieMatch; qi++) {
+            console.log(`[PelisPanda] Consultando API: ${intentos[qi]}`);
+            const searchUrl = `https://pelispanda.org/wp-json/wpreact/v1/search?query=${encodeURIComponent(intentos[qi])}`;
+            const searchData = yield fetchJson(searchUrl, {
+              headers: { "Referer": "https://pelispanda.org/" }
+            });
+            if (searchData && searchData.results)
+              movieMatch = searchData.results.find((r) => r.tmdb_id == tmdbId && r.type === targetType);
+          }
           if (!movieMatch || !movieMatch.slug)
             return [];
           console.log(`[PelisPanda] Seleccionado: ${movieMatch.title} (Slug: ${movieMatch.slug})`);
@@ -2718,6 +2718,12 @@ var require_extractor = __commonJS({
               return null;
             const rawUrl = player.url;
             if (!rawUrl)
+              return null;
+            if (rawUrl.indexOf("voe.sx") !== -1)
+              return null;
+            if (rawUrl.indexOf("filemoon") !== -1)
+              return null;
+            if (rawUrl.indexOf("videoapp") !== -1)
               return null;
             try {
               const resolvedData = yield resolveEmbed(rawUrl);
@@ -2943,10 +2949,49 @@ var require_engine = __commonJS({
 // El bundle original exponía getStreams(tmdbId, mediaType, season, episode, title, year);
 // aquí se mantiene esa lógica (extractor + engine del propio bundle) y se le añaden la
 // normalización de mediaType y el filtro de idioma del final.
+// Finalización SIN sondas: reescritura limpia de la salida del engine.
+//
+// El finalizeStreams del bundle revalida cada stream con un
+// AbortController + setTimeout(2500), pero el fetch del arnés ignora el
+// AbortSignal (hecho del diagnóstico del grupo B): la sonda queda sin
+// tope y cuelga el provider más allá de los 90 s del arnés (la serie
+// nunca llegó a devolver JSON). El extractor ya sondeó cada embed una
+// vez; aquí solo se hace lo demás que hacía el engine —filtro de idioma,
+// dedup y forma final— sin volver a sondear nada. La puerta de medio
+// directo sigue siendo adaptarStreams.
+function finalizarSinSondas(streams) {
+  var lista = Array.isArray(streams) ? streams : [];
+  var normalizeLanguage = require_engine().normalizeLanguage;
+  var salida = [], vistos = {};
+  for (var i = 0; i < lista.length; i++) {
+    var s = lista[i];
+    if (!s || !s.url) continue;
+    var crudo = s.lang || s.Audio || s.langLabel || s.language || s.audio || "Latino";
+    var idioma = normalizeLanguage(crudo);
+    var l = String(idioma).toLowerCase();
+    if (l !== "latino" && l !== "castellano") continue;
+    if (vistos[s.url]) continue;
+    vistos[s.url] = true;
+    var servidor = s.serverLabel || s.serverName || s.servername || "Online";
+    salida.push({
+      name: "PelisPanda - " + (s.quality || "HD"),
+      title: idioma + " - " + servidor,
+      url: s.url,
+      quality: s.quality || "HD",
+      verified: s.verified === true,
+      isReal: s.isReal === true,
+      provider: servidor,
+      language: idioma,
+      headers: s.headers || {}
+    });
+  }
+  return salida;
+}
+
 function getStreamsOriginal(tmdbId, mediaType, season, episode) {
   return Promise.resolve()
     .then(function () { return require_extractor().extractStreams(tmdbId, mediaType, season, episode, null, null); })
-    .then(function (streams) { return require_engine().finalizeStreams(streams, "PelisPanda", null); });
+    .then(function (streams) { return finalizarSinSondas(streams); });
 }
 
 // ===========================================================================
@@ -2970,6 +3015,7 @@ function adaptarStreams(lista) {
   for (var i = 0; i < l.length; i++) {
     var s = l[i];
     if (!s || !s.url) continue;
+    if (s.url.indexOf(".m3u8") === -1 && s.url.indexOf(".mp4") === -1) continue;
     var etiqueta = String(s.title || s.name || "") + " " + String(s.language || s.lang || "");
     if (!idiomaPermitido(etiqueta)) continue;
     if (vistos[s.url]) continue;

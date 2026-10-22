@@ -2925,8 +2925,8 @@ var require_engine = __commonJS({
         console.log(`[Engine] PROCESANDO STREAMS - Bitrate Global v7.6.0`);
         const { validateStream: validateStream2 } = require_m3u8();
         const sorted = sortStreamsByQuality2(streams);
-        const CONCURRENCY_LIMIT = 5;
-        const MAX_VALIDATIONS = 5;
+        const CONCURRENCY_LIMIT = 2;
+        const MAX_VALIDATIONS = 2;
         const validatedStreams = [];
         for (let i = 0; i < sorted.length; i += CONCURRENCY_LIMIT) {
           if (i >= MAX_VALIDATIONS) {
@@ -3000,7 +3000,7 @@ var require_engine = __commonJS({
 // src/hackstore2/extractor.js
 var require_extractor = __commonJS({
   "src/hackstore2/extractor.js"(exports2, module2) {
-    var { fetchJson, BASE_URL } = require_http();
+    var { fetchText, fetchJson, BASE_URL } = require_http();
     var { resolveEmbed } = require_resolvers();
     var { getTmdbTitle, getTmdbAliases, getTmdbInfo } = require_tmdb();
     var engine = require_engine();
@@ -3010,6 +3010,13 @@ var require_extractor = __commonJS({
       return title.toLowerCase().replace(/[áàäâ]/g, "a").replace(/[éèëê]/g, "e").replace(/[íìïî]/g, "i").replace(/[óòöô]/g, "o").replace(/[úùüû]/g, "u").replace(/ñ/g, "n").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
     }
     function getStreams(tmdbId, mediaType, season, episode, query) {
+      // Reescritura limpia (2026-10-22): el flujo es TMDB -> slugs -> post
+      // -> player -> embeds -> resolver -> finalize. Solo se resuelven los
+      // embeds que responden (vimeos directo y videoapp, que es el mismo
+      // vimeos envuelto y se sigue por su iframe); el resto de hosts
+      // (goodstream 522, hlswish caído, VOE 404, filemoon sin datos) no se
+      // intenta. El 5º argumento `query` se mantiene en null desde la
+      // entrada: título y año salen de TMDB, como busca la app Nuvio.
       return __async(this, null, function* () {
         console.log(`[HackStore] API Fast-Track: ${query} (TMDB: ${tmdbId})`);
         try {
@@ -3035,7 +3042,7 @@ var require_extractor = __commonJS({
             slugsToTry.push(sl);
           }
           const uniqueSlugs = [...new Set(slugsToTry)].slice(0, 6);
-          console.log(`[HackStore] R\xE1faga de Slugs (Paralelo):`, uniqueSlugs);
+          console.log(`[HackStore] Ráfaga de Slugs (Paralelo):`, uniqueSlugs);
           let targetId = null;
           const postType = mediaType === "movie" || mediaType === "movies" ? "movies" : "tvshows";
           const idResults = yield Promise.all(uniqueSlugs.map((slug) => __async(this, null, function* () {
@@ -3051,10 +3058,10 @@ var require_extractor = __commonJS({
           const match = idResults.find((r) => r !== null);
           if (match) {
             targetId = match.id;
-            console.log(`[HackStore] \xA1Match R\xE1pido! Slug: ${match.slug} -> ID: ${targetId}`);
+            console.log(`[HackStore] ¡Match Rápido! Slug: ${match.slug} -> ID: ${targetId}`);
           }
           if (!targetId) {
-            console.log("[HackStore] ID Principal no encontrado tras r\xE1faga.");
+            console.log("[HackStore] ID Principal no encontrado tras ráfaga.");
             return [];
           }
           if (postType === "tvshows") {
@@ -3075,7 +3082,10 @@ var require_extractor = __commonJS({
           const playerResponse = yield fetchJson(`${BASE_URL}/wp-api/v1/player?postId=${targetId}`);
           if (!playerResponse || !playerResponse.data || !playerResponse.data.embeds)
             return [];
-          const playerData = playerResponse.data.embeds.slice(0, 15);
+          const playerData = playerResponse.data.embeds.filter(function(p) {
+            var u = String((p && p.url) || "").toLowerCase();
+            return u.indexOf("vimeos") !== -1 || u.indexOf("vms.sh") !== -1 || u.indexOf("videoapp") !== -1;
+          }).slice(0, 4);
           const streamPromises = playerData.map((p) => __async(this, null, function* () {
             const lang = (p.lang || "Latino").toLowerCase();
             if (lang.includes("sub") || lang.includes("vose") || lang.includes("eng") || lang.includes("espana"))
@@ -3083,8 +3093,24 @@ var require_extractor = __commonJS({
             const rawUrl = p.url;
             if (!rawUrl || rawUrl.includes("la.movie"))
               return null;
+            let embedToResolve = rawUrl;
+            if (rawUrl.toLowerCase().indexOf("videoapp") !== -1) {
+              try {
+                const pageHtml = yield fetchText(rawUrl);
+                const iframeMatch = pageHtml ? pageHtml.match(/<iframe[^>]*src=["']([^"']+)["']/i) : null;
+                if (!iframeMatch) return null;
+                let iframeUrl = iframeMatch[1];
+                if (iframeUrl.indexOf("//") === 0) iframeUrl = "https:" + iframeUrl;
+                else if (iframeUrl.indexOf("http") !== 0) return null;
+                const low = iframeUrl.toLowerCase();
+                if (low.indexOf("vimeos") === -1 && low.indexOf("vms.sh") === -1) return null;
+                embedToResolve = iframeUrl;
+              } catch (e) {
+                return null;
+              }
+            }
             try {
-              const resolved = yield resolveEmbed(rawUrl);
+              const resolved = yield resolveEmbed(embedToResolve);
               if (!resolved || !resolved.url)
                 return null;
               return {
@@ -3100,7 +3126,18 @@ var require_extractor = __commonJS({
             }
           }));
           const candidates = (yield Promise.all(streamPromises)).filter(Boolean);
-          return engine.finalizeStreams(candidates, "HackStore", mediaType);
+          // El mismo embed llega dos veces (en claro y con token ?cf=) y
+          // apunta al mismo m3u8: validar dos veces el mismo stream es
+          // lo que atascaba finalizeStreams en series. Se queda el primero
+          // de cada ruta, sin el token, antes de validar.
+          const seenPaths = /* @__PURE__ */ new Set();
+          const uniqueCandidates = candidates.filter((c) => {
+            const path = String(c.url || "").split("?")[0];
+            if (seenPaths.has(path)) return false;
+            seenPaths.add(path);
+            return true;
+          });
+          return engine.finalizeStreams(uniqueCandidates, "HackStore", mediaType);
         } catch (error) {
           console.error(`[HackStore] Fatal Error:`, error.message);
           return [];
@@ -3144,6 +3181,9 @@ function adaptarStreams(lista) {
   for (var i = 0; i < l.length; i++) {
     var s = l[i];
     if (!s || !s.url) continue;
+    // Solo streams reales (m3u8/mp4): fuera páginas de embed que el
+    // resolver genérico pueda haber devuelto tal cual.
+    if (!/\.m3u8|\.mp4/i.test(s.url)) continue;
     var etiqueta = String(s.title || s.name || "") + " " + String(s.language || s.lang || "");
     if (!idiomaPermitido(etiqueta)) continue;
     if (vistos[s.url]) continue;
@@ -3160,12 +3200,23 @@ function adaptarStreams(lista) {
   return salida;
 }
 
+// Tope global 40 s (la app corta a los 60 s; este provider no tenía
+// tope y tardaba 88-112 s en solitario). En QuickJS sin setTimeout queda
+// sin tope, como en los demás providers.
+function withTimeout(promise, ms) {
+  if (typeof setTimeout === 'undefined') return promise;
+  return Promise.race([
+    promise,
+    new Promise(function (res) { setTimeout(function () { res([]); }, ms); })
+  ]);
+}
+
 function getStreams(tmdbId, mediaType, season, episode) {
   var tipo = (mediaType === "series" || mediaType === "anime") ? "tv" : (mediaType || "movie");
-  return Promise.resolve()
+  return withTimeout(Promise.resolve()
     .then(function () { return getStreamsOriginal(tmdbId, tipo, season, episode); })
     .then(function (streams) { return adaptarStreams(streams); })
-    .catch(function () { return []; });
+    .catch(function () { return []; }), 40000);
 }
 
 module.exports = { getStreams };

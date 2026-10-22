@@ -1,6 +1,6 @@
 /**
  * fanpelis - Built from src/fanpelis/
- * Generated: 2026-09-27T07:12:00.791Z
+ * Generated: 2026-10-22T08:33:06.082Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -328,22 +328,23 @@ function unpackPacked(html) {
     const pMatch = html.match(/eval\(function\(p,a,c,k,e,[premd]\)\{.*?\}\s*\('([\s\S]*?)',\s*(\d+),\s*(\d+),\s*'([\s\S]*?)'\.split\('\|'\)/);
     if (!pMatch)
       return null;
-    let [, p, a, c, k] = pMatch;
-    a = parseInt(a, 10);
-    c = parseInt(c, 10);
-    k = k.split("|");
-    const decodeBase36 = (num, rad) => {
-      const symbols = "0123456789abcdefghijklmnopqrstuvwxyz";
-      let res = "";
-      while (num > 0) {
-        res = symbols[num % rad] + res;
-        num = Math.floor(num / rad);
+    const payload = pMatch[1];
+    const radix = parseInt(pMatch[2], 10);
+    const symtab = pMatch[4].split("|");
+    const ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const decodeIndex = (word) => {
+      let value = 0;
+      for (let i = 0; i < word.length; i++) {
+        const digit = ALPHABET.indexOf(word[i]);
+        if (digit === -1 || digit >= radix)
+          return -1;
+        value = value * radix + digit;
       }
-      return res || "0";
+      return value;
     };
-    return p.replace(/\b\w+\b/g, (w) => {
-      const idx = parseInt(w, 36);
-      return idx < k.length && k[idx] ? k[idx] : decodeBase36(idx, a);
+    return payload.replace(/\b\w+\b/g, (word) => {
+      const idx = decodeIndex(word);
+      return idx >= 0 && idx < symtab.length && symtab[idx] ? symtab[idx] : word;
     });
   } catch (e) {
     return null;
@@ -570,6 +571,30 @@ function resolveLulusStream(embedUrl) {
     }
   });
 }
+function resolveMp4uploadStream(embedUrl) {
+  return __async(this, null, function* () {
+    try {
+      const html = yield fetchWithRetry(embedUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          Referer: "https://www.mp4upload.com/"
+        }
+      });
+      if (!html)
+        return null;
+      const m = html.match(/player\.src\(\{\s*type:\s*"video\/mp4",\s*src:\s*"([^"]+)"/) || html.match(/type:\s*"video\/mp4",\s*src:\s*"([^"]+)"/) || html.match(/"src"\s*:\s*"(https?:[^"]+\.mp4[^"]*)"/);
+      if (!m)
+        return null;
+      return {
+        url: m[1],
+        quality: "HD",
+        headers: { Referer: "https://www.mp4upload.com/" }
+      };
+    } catch (e) {
+      return null;
+    }
+  });
+}
 function resolveUqloadStream(embedUrl) {
   return __async(this, null, function* () {
     try {
@@ -677,20 +702,76 @@ function resolveGoodstreamStream(embedUrl) {
 }
 function resolveVimeosStream(embedUrl) {
   return __async(this, null, function* () {
+    const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
     try {
       const origin = getUrlOrigin(embedUrl);
       const html = yield fetchWithRetry(embedUrl, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          "User-Agent": UA,
           Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           Referer: origin + "/"
         }
       }, 1, 12e3);
-      const url = extractUrlsetM3U8(html);
-      if (!url)
+      if (!html)
         return null;
-      const quality = yield detectQualityFromM3U8(url);
-      return { url, quality, headers: { Referer: origin + "/" } };
+      const headers = { "User-Agent": UA };
+      const fromSources = extractUrlsetM3U8(html);
+      if (fromSources) {
+        return { url: fromSources, quality: yield detectQualityFromM3U8(fromSources), headers };
+      }
+      const vimeoId = (html.match(/vimeo\.com\/video\/(\d+)/i) || embedUrl.match(/\/(\d{7,10})/) || [])[1];
+      if (vimeoId) {
+        try {
+          const cfg = yield fetchJson("https://player.vimeo.com/video/" + vimeoId + "/config", {
+            headers: { "User-Agent": UA, Referer: embedUrl }
+          });
+          const files = cfg && cfg.request && cfg.request.files;
+          const hlsUrl = files && files.hls && files.hls.cdns && files.hls.cdns.default && files.hls.cdns.default.url;
+          if (hlsUrl)
+            return { url: hlsUrl, quality: "1080p", headers };
+          const prog = files && files.progressive;
+          if (prog && prog.length > 0) {
+            const best = prog.slice().sort(function(a, b) {
+              return (parseInt(b.quality, 10) || 0) - (parseInt(a.quality, 10) || 0);
+            })[0];
+            if (best && best.url)
+              return { url: best.url, quality: best.quality ? best.quality + "p" : "1080p", headers };
+          }
+        } catch (e) {
+        }
+      }
+      const direct = html.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/i);
+      if (direct) {
+        return { url: direct[0], quality: yield detectQualityFromM3U8(direct[0]), headers };
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  });
+}
+function resolveVideoappStream(embedUrl) {
+  return __async(this, null, function* () {
+    try {
+      const html = yield fetchWithRetry(embedUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          Referer: embedUrl
+        }
+      }, 1, 12e3);
+      if (!html)
+        return null;
+      const iframe = html.match(/<iframe[^>]*src=["']([^"']+)["']/i);
+      if (!iframe)
+        return null;
+      let iframeUrl = iframe[1];
+      if (iframeUrl.indexOf("//") === 0)
+        iframeUrl = "https:" + iframeUrl;
+      else if (iframeUrl.indexOf("http") !== 0)
+        return null;
+      if (!/vimeos|vms\.sh/i.test(iframeUrl))
+        return null;
+      return resolveVimeosStream(iframeUrl);
     } catch (e) {
       return null;
     }
@@ -801,10 +882,10 @@ function getEmbedResolver(url) {
   if (url.includes("voe.sx") || url.includes("cloudwindow-route.com")) {
     return resolveVoeStream;
   }
-  if (url.includes("hlswish") || url.includes("streamwish") || url.includes("vibuxer") || url.includes("strwish") || url.includes("hglink") || url.includes("ghbrisk") || url.includes("premilkyway") || url.includes("hgplaycdn")) {
+  if (url.includes("hlswish") || url.includes("streamwish") || url.includes("vibuxer") || url.includes("strwish") || url.includes("hglink") || url.includes("ghbrisk") || url.includes("premilkyway") || url.includes("hgplaycdn") || url.includes("waaw")) {
     return resolveHLSWishStream;
   }
-  if (url.includes("vidhide") || url.includes("dintezuvio") || url.includes("minochinos") || url.includes("dramiyos") || url.includes("dhcplay") || url.includes("smoothpre") || url.includes("dhtpre") || url.includes("vidspeeder") || url.includes("moorearn") || url.includes("travid") || url.includes("vidhidehub") || url.includes("vidhidevip") || url.includes("vidhidepre") || url.includes("kinoger") || url.includes("movearnpre") || url.includes("peytonepre") || url.includes("filelions")) {
+  if (url.includes("vidhide") || url.includes("dintezuvio") || url.includes("minochinos") || url.includes("dramiyos") || url.includes("dhcplay") || url.includes("smoothpre") || url.includes("dhtpre") || url.includes("vidspeeder") || url.includes("moorearn") || url.includes("travid") || url.includes("vidhidehub") || url.includes("vidhidevip") || url.includes("vidhidepre") || url.includes("kinoger") || url.includes("movearnpre") || url.includes("peytonepre") || url.includes("filelions") || url.includes("morencius")) {
     return resolveVidHideProStream;
   }
   if (url.includes("byse") || url.includes("filemoon") || url.includes("rapidvideo")) {
@@ -831,13 +912,18 @@ function getEmbedResolver(url) {
   if (url.includes("doodstream") || url.includes("dsvplay") || url.includes("dood.to") || url.includes("dood.watch") || url.includes("dood.so")) {
     return resolveDoodStream;
   }
+  if (url.includes("mp4upload")) {
+    return resolveMp4uploadStream;
+  }
+  if (url.includes("videoapp")) {
+    return resolveVideoappStream;
+  }
   return null;
 }
 
 // src/fanpelis/extractor.js
 var TMDB_API_KEY = "1f54bd990f1cdfb230adb312546d765d";
 var API_URL = "https://fanpelis.to/api/rest/";
-var API_FALLBACK = "https://fanpelis.to/api/rest/";
 var ACCENT_MAP = { "\xE1": "a", "\xE9": "e", "\xED": "i", "\xF3": "o", "\xFA": "u", "\xFC": "u", "\xF1": "n", "\xC1": "a", "\xC9": "e", "\xCD": "i", "\xD3": "o", "\xDA": "u", "\xDC": "u", "\xD1": "n", "\xE0": "a", "\xE8": "e", "\xEC": "i", "\xF2": "o", "\xF9": "u", "\xE2": "a", "\xEA": "e", "\xEE": "i", "\xF4": "o", "\xFB": "u", "\xE4": "a", "\xEB": "e", "\xEF": "i", "\xF6": "o", "\xE7": "c", "\xE3": "a", "\xF5": "o" };
 function stripAccents(s) {
   return (s || "").replace(/[^\x00-\x7F]/g, function(c) {
@@ -870,35 +956,26 @@ function decodeEntities(s) {
   return (s || "").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }
 function searchWords(media) {
-  var all = normalizeText((media.originalTitle || "") + " " + (media.title || ""));
-  var words = all.replace(/[^a-z0-9]/g, " ").split(" ").filter(Boolean);
-  var unique = {}, out = [];
-  for (var i = 0; i < words.length; i++) {
-    var w = words[i];
-    if (w.length < 3 || STOPWORDS[w] || unique[w])
-      continue;
-    unique[w] = true;
-    out.push(w);
+  var out = [];
+  var seen = {};
+  var titles = [media.title, media.originalTitle];
+  for (var t = 0; t < titles.length; t++) {
+    var words = normalizeText(titles[t] || "").replace(/[^a-z0-9]/g, " ").split(" ").filter(Boolean);
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i];
+      if (w.length < 3 || STOPWORDS[w] || seen[w])
+        continue;
+      seen[w] = true;
+      out.push(w);
+    }
   }
-  out.sort(function(a, b) {
-    return b.length - a.length;
-  });
-  return out.slice(0, 3);
+  return out.slice(0, 4);
 }
 function api(path) {
   return fetchJson(API_URL + path).then(function(res) {
     if (!res || res.error)
       throw new Error("Fanpelis API error");
     return res.data;
-  }).catch(function(e) {
-    if (API_FALLBACK !== API_URL) {
-      return fetchJson(API_FALLBACK + path).then(function(res2) {
-        if (!res2 || res2.error)
-          throw new Error("Fanpelis API error");
-        return res2.data;
-      });
-    }
-    throw e;
   });
 }
 function pickPost(posts, media, wantTv, ignoreYear) {
@@ -951,33 +1028,50 @@ function pickPost(posts, media, wantTv, ignoreYear) {
   return best;
 }
 function resolveEmbeds(embeds) {
-  var streams = [];
-  var jobs = (embeds || []).map(function(e) {
+  var DEAD_HOSTS = /goodstream|hlswish|streamwish|vibuxer|hglink|ghbrisk|premilkyway/i;
+  var PRIORITY = ["vimeos", "voe", "filemoon", "videoapp"];
+  function rank(url) {
+    for (var i = 0; i < PRIORITY.length; i++) {
+      if (url.indexOf(PRIORITY[i]) !== -1)
+        return i;
+    }
+    return PRIORITY.length;
+  }
+  var list = (embeds || []).filter(function(e) {
     var url = e.url || "";
     if (!url || url.indexOf("magnet:") === 0)
-      return Promise.resolve();
+      return false;
     var fixedUrl = mapDomain(url);
+    if (DEAD_HOSTS.test(fixedUrl))
+      return false;
+    return !!getEmbedResolver(fixedUrl);
+  }).sort(function(a, b) {
+    return rank(mapDomain(a.url)) - rank(mapDomain(b.url));
+  });
+  function tryNext(i) {
+    if (i >= list.length)
+      return Promise.resolve([]);
+    var e = list[i];
+    var fixedUrl = mapDomain(e.url);
     var resolver = getEmbedResolver(fixedUrl);
-    if (!resolver)
-      return Promise.resolve();
     var lang = e.lang || "LAT";
     var q = e.quality || "HD";
     return resolver(fixedUrl).then(function(result) {
       if (result && result.url) {
-        streams.push({
+        return [{
           name: "Fanpelis (" + lang + ")",
           title: (result.quality || q) + " \xB7 " + lang + " \xB7 " + fixedUrl.split("/")[2],
           url: result.url,
           quality: result.quality || q,
           headers: result.headers
-        });
+        }];
       }
+      return tryNext(i + 1);
     }).catch(function() {
+      return tryNext(i + 1);
     });
-  });
-  return Promise.all(jobs).then(function() {
-    return streams;
-  });
+  }
+  return tryNext(0);
 }
 function movieStreams(postId) {
   return api("player?post_id=" + postId + "&_any=1").then(function(data) {
@@ -1010,23 +1104,32 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       return [];
     var posts = [];
     var seen = {};
-    var chain = Promise.resolve();
-    words.forEach(function(w) {
-      chain = chain.then(function() {
-        var path = "search?query=" + encodeURIComponent(w) + "&page=1&post_type=movies,tvshows,animes&posts_per_page=16";
-        return api(path).then(function(data) {
-          var list = data && data.posts || [];
-          for (var i = 0; i < list.length; i++) {
-            if (!seen[list[i]._id]) {
-              seen[list[i]._id] = true;
-              posts.push(list[i]);
-            }
+    var no = normalizeText(media.originalTitle || "");
+    var nt = normalizeText(media.title || "");
+    function tryWord(i) {
+      if (i >= words.length)
+        return Promise.resolve();
+      var path = "search?query=" + encodeURIComponent(words[i]) + "&page=1&post_type=movies,tvshows,animes&posts_per_page=16";
+      return api(path).then(function(data) {
+        var list = data && data.posts || [];
+        for (var j = 0; j < list.length; j++) {
+          if (!seen[list[j]._id]) {
+            seen[list[j]._id] = true;
+            posts.push(list[j]);
           }
-        }).catch(function() {
-        });
+        }
+      }).catch(function() {
+      }).then(function() {
+        var best = pickPost(posts, media, wantTv, false);
+        if (best) {
+          var pb = normalizeText(stripYear(decodeEntities(best.title || "")));
+          if (pb === no || pb === nt)
+            return;
+        }
+        return tryWord(i + 1);
       });
-    });
-    return chain.then(function() {
+    }
+    return tryWord(0).then(function() {
       var best = pickPost(posts, media, wantTv, false);
       if (!best)
         best = pickPost(posts, media, wantTv, true);
@@ -1038,150 +1141,6 @@ function extractStreams(tmdbId, mediaType, season, episode) {
     });
   }).catch(function(err) {
     console.error("[Fanpelis] Error: " + (err && err.message ? err.message : err));
-    return [];
-  });
-}
-
-// src/shared/validate.js
-var VALIDATE_TIMEOUT_MS = 7e3;
-var VALIDATE_CONCURRENCY = 4;
-function qualityRank(q) {
-  if (!q)
-    return 0;
-  var s = String(q).toLowerCase();
-  if (s.indexOf("4k") !== -1 || s.indexOf("2160") !== -1)
-    return 2160;
-  var m = s.match(/(\d{3,4})\s*p/);
-  if (m)
-    return parseInt(m[1], 10);
-  return 0;
-}
-function isM3u8(url) {
-  return /\.m3u8(\?|#|$)/i.test(url || "");
-}
-function checkUrl(url, headers, timeoutMs) {
-  return new Promise(function(resolve) {
-    var done = false;
-    var timer = null;
-    var controller = null;
-    function finish(ok) {
-      if (done)
-        return;
-      done = true;
-      if (timer) {
-        try {
-          clearTimeout(timer);
-        } catch (e) {
-        }
-        timer = null;
-      }
-      if (controller) {
-        try {
-          controller.abort();
-        } catch (e) {
-        }
-      }
-      resolve(!!ok);
-    }
-    if (!url || typeof url !== "string" || url.indexOf("http") !== 0) {
-      resolve(false);
-      return;
-    }
-    if (typeof setTimeout !== "undefined") {
-      timer = setTimeout(function() {
-        timer = null;
-        finish(false);
-      }, timeoutMs || VALIDATE_TIMEOUT_MS);
-    }
-    var reqHeaders = {
-      "Range": "bytes=0-2047",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    };
-    if (headers) {
-      for (var k in headers) {
-        if (Object.prototype.hasOwnProperty.call(headers, k) && headers[k]) {
-          reqHeaders[k] = headers[k];
-        }
-      }
-    }
-    var reqInit = { headers: reqHeaders, redirect: "follow" };
-    try {
-      if (typeof AbortController !== "undefined") {
-        controller = new AbortController();
-        reqInit.signal = controller.signal;
-      }
-    } catch (e) {
-      controller = null;
-    }
-    fetch(url, reqInit).then(function(res) {
-      var status = res.status;
-      if (status === 200 || status === 206 || status === 416) {
-        if (isM3u8(url)) {
-          res.text().then(function(t) {
-            finish(t && t.indexOf("#EXTM3U") !== -1);
-          }).catch(function() {
-            finish(true);
-          });
-        } else {
-          finish(true);
-        }
-      } else {
-        finish(false);
-      }
-    }).catch(function() {
-      finish(false);
-    });
-  });
-}
-function filterWorkingStreams(streams, opts) {
-  opts = opts || {};
-  var timeout = opts.timeoutMs || VALIDATE_TIMEOUT_MS;
-  var concurrency = opts.concurrency || VALIDATE_CONCURRENCY;
-  var seen = {};
-  var uniq = [];
-  (streams || []).forEach(function(s) {
-    if (!s || !s.url || seen[s.url])
-      return;
-    seen[s.url] = 1;
-    uniq.push(s);
-  });
-  if (uniq.length === 0)
-    return Promise.resolve([]);
-  var results = new Array(uniq.length);
-  var cursor = 0;
-  function worker() {
-    if (cursor >= uniq.length)
-      return Promise.resolve();
-    var i = cursor++;
-    var st = uniq[i];
-    return checkUrl(st.url, st.headers, timeout).then(function(ok) {
-      results[i] = ok ? st : null;
-    }).catch(function() {
-      results[i] = null;
-    }).then(worker);
-  }
-  var workers = [];
-  var n = Math.min(concurrency, uniq.length);
-  for (var w = 0; w < n; w++)
-    workers.push(worker());
-  return Promise.all(workers).then(function() {
-    var alive = [];
-    for (var i = 0; i < results.length; i++) {
-      if (results[i])
-        alive.push(results[i]);
-    }
-    alive.sort(function(a, b) {
-      return qualityRank(b.quality) - qualityRank(a.quality);
-    });
-    return alive;
-  }).catch(function() {
-    return uniq;
-  });
-}
-function withWorkingStreams(extractPromise) {
-  return Promise.resolve(extractPromise).then(function(streams) {
-    return filterWorkingStreams(streams);
-  }).catch(function() {
     return [];
   });
 }
@@ -1201,7 +1160,9 @@ function withTimeout(promise, ms) {
 }
 function getStreams(tmdbId, mediaType, season, episode) {
   return withTimeout(
-    withWorkingStreams(extractStreams(tmdbId, mediaType, season, episode)),
+    extractStreams(tmdbId, mediaType, season, episode).catch(function() {
+      return [];
+    }),
     4e4
   );
 }
