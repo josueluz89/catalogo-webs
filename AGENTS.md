@@ -129,8 +129,16 @@ fija un slug a mano sin verificarlo.
   es la prueba (página del reproductor viva con token vigente).
 - **Salida**: solo medio directo (URL con `.m3u8` o `.mp4`). Nunca
   devolver como stream una página de embed (videoapp y similares).
-- **Idioma**: solo latino/subtitulado. Sin etiquetas de España
-  (Esp/ESP/SPA/Castellano/dual): se descartan en el filtro.
+- **Idioma (portero compartido al final)**: el filtro se fija en
+  la etiqueta de idioma que trae cada enlace. Pasan: Latino
+  (incluye es_MX, lat, México), Subtitulado, Inglés y Japonés.
+  Se botan: castellano, es_ES y «Español» a secas (en estas
+  páginas es el de España), y cualquier otro idioma. Sin
+  etiqueta, pasa: mejor no botar un enlace bueno por falta de
+  papel. Algunos providers descartan el castellano desde la
+  página antes de resolver; la garantía final es el portero.
+  El orden importa: no probar primero los de España ni rendirse
+  antes de llegar a los subtitulados buenos.
 - **Presupuesto**: subir `PRESUPUESTO_MS` a 55000 donde haga falta
   y darle presupuesto propio al PoW después de la página vidurl
   (el presupuesto global lo mataba en el nonce 0). Ojo: en el arnés
@@ -146,10 +154,10 @@ fija un slug a mano sin verificarlo.
 ## 6. Verificación: solo primero, lote chico después
 
 1. **Solo primero**, con `tools/qjs-correr.mjs` y los 4 argumentos
-   Nuvio, en la caja bajo llave. Casos: película Dune 2
-   (`693134 movie`), serie The Boys (`76479 tv 3 1`), anime
-   Jujutsu Kaisen (`95479 tv 1 1`) y Spirited Away (`129 movie`)
-   para los de anime.
+   Nuvio, en la caja bajo llave. Casos: ver
+   `docs/REFERENCIAS-PRUEBA.md` (las cuatro fijas de siempre, las
+   extendidas para variar y para terrenos concretos, y siempre un
+   título del terreno del sitio).
 2. **Después, lote chico** (≤4 en paralelo, `LIMITE_MS=180000`).
    Un «sin JSON» en un lote grande (14–17 en paralelo) es sospecha
    de timeout/contención, NO diagnóstico de muerte: los providers
