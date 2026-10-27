@@ -3,27 +3,6 @@
   "version": "1.12.0",
   "scrapers": [
     {
-      "id": "allpeliculasse",
-      "name": "AllPeliculas",
-      "description": "Películas y series en latino y subtitulado desde allpeliculas.la (API interna /wp-api/v1: búsqueda + player). Portado desde latinuvio a QuickJS y verificado en el arnés del runtime: 1 stream en Duna: Parte dos y 3 en The Boys S3E1, con los bloques de español de España descartados antes de resolver. v1.0.1: sin el espejo muerto awish.pro (colgaba ~12 s), VOE aborta al ver su gate ALTCHA, presupuesto 35->45 s.",
-      "version": "1.0.1",
-      "author": "Masters",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/allpeliculasse.js",
-      "enabled": true,
-      "formats": [
-        "m3u8",
-        "mp4"
-      ],
-      "logo": "https://www.google.com/s2/favicons?domain=allpeliculas.la&sz=128",
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
       "id": "animeav1",
       "name": "AnimeAV1",
       "description": "Anime (y sus películas) en latino y subtitulado desde animeav1.com. (1.0.1: restaurado el resolver de MP4Upload que faltaba en el código fuente; tope del provider 40 s → 50 s porque la cadena completa ronda los 44 s en QuickJS y el tope anterior la cortaba a 0 streams.)",
@@ -61,27 +40,6 @@
         "mp4"
       ],
       "logo": "https://www.google.com/s2/favicons?domain=cuevana.gs&sz=128",
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
-      "id": "elifilms",
-      "name": "EliFilms",
-      "description": "Películas y series en latino y subtitulado desde allcalidad.re (API REST /api/rest/: search + episodes + player). Portado desde latinuvio a QuickJS y verificado en el arnés del runtime: 1 stream en Duna: Parte dos y 3 en The Boys S3E1, solo latino/subtitulado.",
-      "version": "1.0.0",
-      "author": "Masters",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/elifilms.js",
-      "enabled": true,
-      "formats": [
-        "m3u8",
-        "mp4"
-      ],
-      "logo": "https://www.google.com/s2/favicons?domain=allcalidad.re&sz=128",
       "contentLanguage": [
         "es"
       ]
@@ -192,27 +150,6 @@
       ]
     },
     {
-      "id": "pelispanda",
-      "name": "PelisPanda",
-      "description": "Películas y series en latino desde pelispanda.org (API wpreact; Vimeos, VOE, StreamWish). Solo latino y subtitulado.",
-      "version": "1.0.0",
-      "author": "Masters",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/pelispanda.js",
-      "enabled": true,
-      "formats": [
-        "m3u8",
-        "mp4"
-      ],
-      "logo": "https://www.google.com/s2/favicons?domain=pelispanda.org&sz=128",
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
       "id": "pelisplusto",
       "name": "Pelisplusto",
       "description": "Películas y series en latino/sub desde PelisPlusHD (vía embed69). 1.1.0: embed69 resuelto de verdad — /f/ con PoW SHA-256 + AES-256-CBC (enlaces descifrados a VOE/StreamWish/VidHide) y /video/ con servidores en claro; uqlink.php ya no existe en el sitio. Duna: Parte dos sigue en 0: el sitio la eliminó (su ficha da 404).",
@@ -271,27 +208,6 @@
         "mkv"
       ],
       "logo": "https://www.google.com/s2/favicons?domain=gnulahd.nu&sz=128",
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
-      "id": "fanpelis",
-      "name": "Fanpelis",
-      "description": "DESHABILITADO 2026-09-23: fanpelis.to no responde (timeout). Películas y series en latino vía API de Fanpelis (VOE, StreamWish, FileMoon).",
-      "version": "1.0.0",
-      "author": "Masters",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/fanpelis.js",
-      "enabled": false,
-      "formats": [
-        "m3u8",
-        "mp4"
-      ],
-      "logo": "https://www.google.com/s2/favicons?domain=fanpelis.to&sz=128",
       "contentLanguage": [
         "es"
       ]

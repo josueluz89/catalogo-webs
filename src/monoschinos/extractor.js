@@ -1,15 +1,35 @@
-// monoschinos — MonosChinos (vww.monoschinos2.net).
-// Portado a MasterScrap desde latinuvio (providers/monoschinos.js), autor original Latinuvio.
-// Adaptado a QuickJS: sin require() de hermanos (resolvers inlineados en ./resolvers.js),
-// sin Buffer (base64 propio), sin matchAll (bucles con RegExp.exec) y filtrado a
-// latino/subtitulado; jamas se emite un stream de espanol de Espana.
+// monoschinos — MonosChinos (vww.monoschinos2.net). Reescrito 2026-10-27.
 //
-// Cadena verificada 2026-10-15:
+// Por qué se reescribió:
+//  1. Attack on Titan daba 0 en silencio: el código solo pedía TMDB en
+//     es-MX ("Attack on Titan") y los 9 primeros alternativos (todos en
+//     alfabetos no latinos: bengalí, búlgaro, ruso, chino...). El romaji
+//     "Shingeki no Kyojin", que es como el sitio indexa la serie, es el
+//     alternativo nº 26 y nunca se probaba; además, si un título principal
+//     daba cualquier substring, el bucle de alternativos se cortaba.
+//  2. Dragon Ball Super tardaba 85 s: búsquedas en serie, paginación de
+//     episodios en serie (el cap. 1 de una serie larga está en la última
+//     página) y resolución de todos los embeds en un solo Promise.all
+//     esperando al resolver más lento.
+//
+// Reglas nuevas:
+//  - TMDB en paralelo (es-MX, es-ES, en-US + alternativos latinos) y cada
+//    ficha del sitio se puntúa contra TODOS los títulos: así la búsqueda
+//    "Attack on Titan" ya casa exacto con la ficha "Shingeki no Kyojin".
+//  - Solo se resuelve una ficha con coincidencia exacta (o substring
+//    fuerte) y nunca castellana ni de temporada distinta; si la ficha
+//    elegida no da episodio/streams, se prueba la siguiente candidata
+//    (la duplicada "Saint Seiya" sin episodios no puede dejar al provider
+//    en 0 si existe la ficha buena).
+//  - El episodio se toma directo de /ver/<slug>-episodio-<N> (verificado
+//    2026-10-27 para DBS y AoT); la paginación ajax queda solo de respaldo.
+//  - Resolución por oleadas con parada temprana (uqload/mp4upload, luego
+//    voe, luego resto) y tope de 2 streams.
+//
+// Cadena verificada 2026-10-27:
 //   buscar   : GET /animes?buscar=<titulo>          (tarjetas <li class="...ficha_efecto">)
-//   serie    : GET /anime/<slug>                    (data-i / data-u)
-//   episodio : POST /ajax_pagination acc=episodes&i=&u=&p=1  (articles con alt "... episodio N")
-//   embeds   : GET /ver/<slug>  (target=_blank) + POST ajax acc=opt&i=<data-encrypt>
-//              (botones data-player en base64 -> URL del host)
+//   episodio : GET /ver/<slug>-episodio-<N>         (target=_blank + data-encrypt)
+//   embeds   : POST ajax_pagination acc=opt&i=<data-encrypt> (data-player en base64)
 //   hosts    : byse/filemoon, uqload, mp4upload, mixdrop, dhcplay/voe/filelions/streamwish...
 
 import { fetchText } from '../shared/http.js';
@@ -27,8 +47,10 @@ const HEADERS = {
   'Referer': HOST + '/',
 };
 
-const MAX_EMBEDS = 4;
+const MAX_EMBEDS = 8;
 const MAX_STREAMS = 8;
+const MAX_CANDIDATOS = 3;
+const MAX_QUERIES = 15;
 
 // el resolver compartido de voe devuelve 'Unknown' cuando la URL no dice la calidad:
 // en la app queda mejor 'HD' que un literal raro
@@ -43,11 +65,11 @@ function calidadDe(q) {
 // ---------------------------------------------------------------------------
 
 const ACCENTS = {
-  'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a', 'ã': 'a', 'å': 'a',
-  'é': 'e', 'è': 'e', 'ë': 'e', 'ê': 'e',
-  'í': 'i', 'ì': 'i', 'ï': 'i', 'î': 'i',
-  'ó': 'o', 'ò': 'o', 'ö': 'o', 'ô': 'o', 'õ': 'o',
-  'ú': 'u', 'ù': 'u', 'ü': 'u', 'û': 'u',
+  'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a', 'ã': 'a', 'å': 'a', 'ā': 'a',
+  'é': 'e', 'è': 'e', 'ë': 'e', 'ê': 'e', 'ē': 'e',
+  'í': 'i', 'ì': 'i', 'ï': 'i', 'î': 'i', 'ī': 'i',
+  'ó': 'o', 'ò': 'o', 'ö': 'o', 'ô': 'o', 'õ': 'o', 'ō': 'o',
+  'ú': 'u', 'ù': 'u', 'ü': 'u', 'û': 'u', 'ū': 'u',
   'ñ': 'n', 'ç': 'c', 'ß': 'ss',
 };
 
@@ -61,8 +83,12 @@ function sinAcentos(s) {
   return out;
 }
 
+function cleanTitle(s) {
+  return sinAcentos(s).replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+}
+
 function norm(s) {
-  return sinAcentos(s).replace(/[^a-z0-9]/g, '');
+  return cleanTitle(s).replace(/\s+/g, '');
 }
 
 var B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
@@ -86,6 +112,41 @@ function base64ToText(input) {
   var out = '';
   for (var i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
   return out;
+}
+
+// Título del sitio limpio: sin "Ver Anime ... Online Gratis" y sin sufijo
+// de idioma ("Shingeki no Kyojin 3 Parte 2 Castellano" -> base con "3 Parte 2").
+var LANG_TAIL = ['latino', 'castellano', 'subtitulado', 'sub', 'espanol', 'espana', 'doblaje', 'dub', 'audio', 'vose', 'vosi'];
+function baseDeTitulo(titulo) {
+  var t = cleanTitle(titulo)
+    .replace(/^ver anime\s+/i, '')
+    .replace(/\s+online gratis$/i, '');
+  var words = t.split(' ');
+  while (words.length > 1 && LANG_TAIL.indexOf(words[words.length - 1]) !== -1) words.pop();
+  return words.join(' ');
+}
+
+function sinArticulo(t) {
+  return String(t || '').replace(/^(the|los|las|el|la|lo|un|una|unos|unas)\s+/i, '');
+}
+
+function esCastellano(titulo, slug) {
+  var t = sinAcentos(titulo) + ' ' + sinAcentos(slug);
+  return t.indexOf('castellano') !== -1;
+}
+
+// Marca de temporada: "temporada 3", "season 2", "3 parte 2", número final,
+// "final season". Devuelve el número o null.
+function marcaTemporada(base, slug) {
+  var t = ' ' + cleanTitle(base) + ' ' + cleanTitle(slug) + ' ';
+  var m = t.match(/\btemporada\s+(\d+)\b/) || t.match(/\bseason\s+(\d+)\b/);
+  if (m) return parseInt(m[1], 10);
+  if (t.indexOf(' final season ') !== -1) return 99;
+  m = t.match(/\s(\d+)\s+parte\s/) || t.match(/\s(\d+)\s+part\s/);
+  if (m) return parseInt(m[1], 10);
+  m = cleanTitle(base).match(/\s(\d+)$/);
+  if (m) return parseInt(m[1], 10);
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,43 +179,104 @@ function filtrarIdioma(streams) {
 }
 
 // ---------------------------------------------------------------------------
-// TMDB + busqueda
+// TMDB + busqueda + puntuacion
 // ---------------------------------------------------------------------------
 
-function getTmdbInfo(id, tipo) {
-  var url = 'https://api.themoviedb.org/3/' + tipo + '/' + id + '?api_key=' + TMDB_KEY + '&language=es-MX';
+function tmdbJson(path) {
+  var url = 'https://api.themoviedb.org/3/' + path + (path.indexOf('?') === -1 ? '?' : '&') + 'api_key=' + TMDB_KEY;
   return fetchText(url, { headers: { 'User-Agent': UA } }, 10000)
-    .then(function (raw) {
-      var res = JSON.parse(raw);
-      return {
-        title: tipo === 'movie' ? res.title || res.original_title : res.name || res.original_name,
-        originalTitle: tipo === 'movie' ? res.original_title || res.title : res.original_name || res.name,
-      };
-    })
+    .then(function (raw) { return JSON.parse(raw); })
     .catch(function () { return null; });
 }
 
-function getTmdbAltTitles(id, tipo) {
-  // Titulos alternativos (el sitio usa el romaji: "Sen to Chihiro no Kamikakushi"
-  // para "El viaje de Chihiro"; TMDB lo trae como alternative_title JP Romaji).
-  // TV responde {results:[{title}]} y movie {titles:[{title}]}.
-  var url = 'https://api.themoviedb.org/3/' + tipo + '/' + id + '/alternative_titles?api_key=' + TMDB_KEY;
-  return fetchText(url, { headers: { 'User-Agent': UA } }, 10000)
-    .then(function (raw) {
-      var res = JSON.parse(raw);
-      var arr = res.titles || res.results || [];
-      var out = [];
-      for (var i = 0; i < arr.length; i++) {
-        if (arr[i] && arr[i].title && out.indexOf(arr[i].title) < 0) out.push(arr[i].title);
+// Títulos candidatos en orden de preferencia. Los alternativos solo cuentan
+// si dejan algo en alfabeto latino tras limpiar (el romaji sí; el japonés,
+// chino o cirílico no, porque el sitio no indexa con esos alfabetos).
+// Sin el filtro latino, los 9 primeros alternativos de AoT eran todos no
+// latinos y el romaji (nº 26) nunca se probaba.
+function getTmdbInfo(id, tipo) {
+  return Promise.all([
+    tmdbJson(tipo + '/' + id + '?language=es-MX'),
+    tmdbJson(tipo + '/' + id + '?language=es-ES'),
+    tmdbJson(tipo + '/' + id + '?language=en-US'),
+    tmdbJson(tipo + '/' + id + '/alternative_titles'),
+  ]).then(function (rs) {
+    var titles = [];
+    function add(t) {
+      if (!t) return;
+      if (titles.indexOf(t) < 0) titles.push(t);
+    }
+    for (var i = 0; i < 3; i++) {
+      var res = rs[i];
+      if (!res) continue;
+      add(tipo === 'movie' ? res.title : res.name);
+      add(tipo === 'movie' ? res.original_title : res.original_name);
+    }
+    var alts = rs[3];
+    if (alts) {
+      var arr = alts.titles || alts.results || [];
+      for (var j = 0; j < arr.length; j++) {
+        if (arr[j] && arr[j].title && cleanTitle(arr[j].title)) add(arr[j].title);
       }
-      return out;
-    })
-    .catch(function () { return []; });
+    }
+    return titles.length ? { titles: titles } : null;
+  }).catch(function () { return null; });
+}
+
+// Objetivos de coincidencia para la temporada pedida. En temporada 1 el
+// título pelado basta; en temporada N solo valen las variantes con marca
+// de esa temporada (una ficha pelada es la temporada 1, no la N).
+function objetivos(titles, season) {
+  var s = parseInt(season, 10) || 1;
+  var out = [];
+  function add(t) {
+    var c = cleanTitle(t);
+    if (c && out.indexOf(c) < 0) out.push(c);
+  }
+  for (var i = 0; i < titles.length; i++) {
+    if (s === 1) {
+      add(titles[i]);
+      add(titles[i] + ' temporada 1');
+      add(titles[i] + ' season 1');
+    } else {
+      add(titles[i] + ' temporada ' + s);
+      add(titles[i] + ' season ' + s);
+      add(titles[i] + ' ' + s);
+    }
+  }
+  return out;
+}
+
+// Puntuación de una ficha contra los objetivos:
+//   100 = coincidencia exacta del título base (o sin artículo inicial)
+//    50 = un objetivo completo contenido en la base o viceversa
+//    -1 = descartada: castellana, o marca de temporada distinta de la pedida
+// idx = índice del objetivo que casó: si dos fichas casan exacto, gana la
+// que casa con el título más principal (la serie antes que un spin-off
+// cuyo título también está en los alternativos de TMDB).
+function puntuarFicha(siteTitle, slug, targets, season) {
+  if (esCastellano(siteTitle, slug)) return { score: -1, idx: 9999 };
+  var base = baseDeTitulo(siteTitle);
+  var s = parseInt(season, 10) || 1;
+  var marca = marcaTemporada(base, slug);
+  if (marca !== null && marca !== s) return { score: -1, idx: 9999 };
+  for (var i = 0; i < targets.length; i++) {
+    var t = targets[i];
+    if (base === t || sinArticulo(base) === sinArticulo(t)) return { score: 100, idx: i };
+  }
+  var best = -1;
+  var bestIdx = 9999;
+  for (var j = 0; j < targets.length; j++) {
+    var tj = targets[j];
+    if (base.indexOf(tj) !== -1 || tj.indexOf(base) !== -1) {
+      var sc = 50 - Math.min(20, Math.floor(Math.abs(base.length - tj.length) / 2));
+      if (sc > best) { best = sc; bestIdx = j; }
+    }
+  }
+  return { score: best, idx: bestIdx };
 }
 
 function searchSite(searchTitle) {
-  var ns = norm(searchTitle);
-  if (!ns) return Promise.resolve(null);
   var url = HOST + '/animes?buscar=' + encodeURIComponent(searchTitle);
   return fetchText(url, { headers: HEADERS }, 15000)
     .then(function (html) {
@@ -162,48 +284,49 @@ function searchSite(searchTitle) {
       var re = /ficha_efecto">([\s\S]*?)<\/li>/gi;
       var m;
       while ((m = re.exec(html)) !== null) bloques.push(m[1]);
-      // El primer match por substring gana la ficha equivocada: TMDB llama a la
-      // serie "Los Caballeros del Zodiaco" y el primer resultado que contiene
-      // ese texto es la PELICULA "Legend of Sanctuary (Los Caballeros del
-      // Zodiaco: ...)", cuya lista de episodios no tiene el cap. pedido -> [].
-      // Se puntua cada candidato y gana el mas cercano al titulo buscado:
-      // exacto = 100; substring = 50 menos la diferencia de largo (la ficha
-      // correcta es la mas corta entre las que contienen el titulo).
-      var best = null;
-      var bestScore = 0;
+      var out = [];
       for (var i = 0; i < bloques.length; i++) {
         var block = bloques[i];
         var title = (block.match(/title="([^"]*)"/) || [])[1] || '';
         var href = (block.match(/href="([^"]*)"/) || [])[1] || '';
         if (!title || !href) continue;
-        var cleanTitle = title.replace('Ver Anime', '').replace('Online Gratis', '').replace(/&quot;|&amp;|&#039;/g, '').replace(/^\s+|\s+$/g, '');
-        var nct = norm(cleanTitle);
-        if (!nct) continue;
-        var score = 0;
-        if (nct === ns) score = 100;
-        else if (nct.indexOf(ns) !== -1 || ns.indexOf(nct) !== -1) {
-          score = 50 - Math.min(20, Math.floor(Math.abs(nct.length - ns.length) / 2));
-        }
-        if (score > bestScore) {
-          bestScore = score;
-          best = href.indexOf('http') === 0 ? href : href.replace('./', HOST + '/');
-        }
+        var slugM = href.match(/\/anime\/([^"\/\?]+)/i);
+        out.push({
+          title: title.replace(/&quot;|&amp;|&#039;/g, ''),
+          href: href.indexOf('http') === 0 ? href : href.replace('./', HOST + '/'),
+          slug: slugM ? slugM[1] : '',
+        });
       }
-      return best ? { url: best, score: bestScore } : null;
+      return out;
+    })
+    .catch(function () { return []; });
+}
+
+// ---------------------------------------------------------------------------
+// episodio: URL directa primero, paginacion ajax solo de respaldo
+// ---------------------------------------------------------------------------
+
+function tieneReproductores(html) {
+  if (!html || html.length <= 500) return false;
+  return html.indexOf('data-encrypt') !== -1 || html.indexOf('target="_blank"') !== -1;
+}
+
+function episodioDirecto(slug, episode) {
+  var url = HOST + '/ver/' + slug + '-episodio-' + (parseInt(episode, 10) || 1);
+  return fetchText(url, { headers: HEADERS }, 15000)
+    .then(function (html) {
+      return tieneReproductores(html) ? url : null;
     })
     .catch(function () { return null; });
 }
 
-function getEpisodeUrl(seriesUrl, episode) {
+function episodioPorPaginacion(seriesUrl, episode) {
   return fetchText(seriesUrl, { headers: HEADERS }, 15000)
     .then(function (html) {
       var dataI = (html.match(/data-i="([^"]+)"/) || [])[1];
       var dataU = (html.match(/data-u="([^"]+)"/) || [])[1];
       if (!dataI || !dataU) return null;
       var targetEp = String(parseInt(episode, 10) || 1);
-      // Episodios en orden inverso (el mas nuevo primero), 50 por pagina: el
-      // cap. 1 de una serie larga NO esta en p=1 (Saint Seiya, 114 caps, lo
-      // tiene en p=3). Se recorren paginas hasta encontrarlo o agotarlas.
       function buscarEnPagina(p) {
         var body = 'acc=episodes&i=' + encodeURIComponent(dataI) + '&u=' + encodeURIComponent(dataU) + '&p=' + p;
         return fetchText(HOST + '/ajax_pagination', {
@@ -240,27 +363,41 @@ function getEpisodeUrl(seriesUrl, episode) {
     .catch(function () { return null; });
 }
 
+function getEpisodeUrl(cand, episode) {
+  return episodioDirecto(cand.slug, episode).then(function (directo) {
+    if (directo) return directo;
+    return episodioPorPaginacion(cand.href, episode);
+  });
+}
+
 function getEmbedUrls(episodeUrl) {
   return fetchText(episodeUrl, { headers: HEADERS }, 15000)
     .then(function (html) {
-      var embeds = [];
+      // Los target="_blank" son los mismos archivos que los reproductores
+      // opt con otra ruta (/d/<id> frente a /e/<id>): si hay opt, los
+      // directos solo duplican trabajo y tiempo. Solo valen si no hay opt.
+      var directos = [];
+      var opt = [];
       var vistos = {};
-      function push(u) {
+      function pushDirecto(u) {
         if (!u || vistos[u]) return;
         vistos[u] = true;
-        embeds.push(u);
+        directos.push(u);
+      }
+      function pushOpt(u) {
+        if (!u || vistos[u]) return;
+        vistos[u] = true;
+        opt.push(u);
       }
 
-      // enlaces directos (target="_blank")
       var re = /target="_blank"\s+href="(https?:\/\/[^"]+)"/gi;
       var m;
       while ((m = re.exec(html)) !== null) {
-        if (!/rpmplayer\./.test(m[1])) push(m[1]);
+        if (!/rpmplayer\./.test(m[1])) pushDirecto(m[1]);
       }
 
-      // botones de reproductor (data-encrypt -> POST ajax -> data-player base64)
       var encrypt = (html.match(/data-encrypt="([^"]+)"/) || [])[1];
-      if (!encrypt) return embeds;
+      if (!encrypt) return directos;
       return fetchText(HOST + '/ajax_pagination', {
         method: 'POST',
         headers: {
@@ -277,10 +414,10 @@ function getEmbedUrls(episodeUrl) {
         var m2;
         while ((m2 = re2.exec(ajaxHtml)) !== null) {
           var url = base64ToText(m2[1]);
-          if (url.indexOf('http') === 0 && !/rpmplayer\./.test(url)) push(url);
+          if (url.indexOf('http') === 0 && !/rpmplayer\./.test(url)) pushOpt(url);
         }
-        return embeds;
-      }).catch(function () { return embeds; });
+        return opt.length ? opt : directos;
+      }).catch(function () { return opt.length ? opt : directos; });
     })
     .catch(function () { return []; });
 }
@@ -320,6 +457,24 @@ function resolverEmbed(embedUrl) {
     .catch(function () { return null; });
 }
 
+function hostDe(url) {
+  var m = String(url || '').match(/^https?:\/\/([^\/]+)/i);
+  return m ? m[1] : '';
+}
+
+// Dos embeds distintos pueden resolver al mismo archivo (los tokens de la
+// URL cambian pero host+ruta no): se deduplica por host+ruta.
+function claveStream(url) {
+  var m = String(url || '').match(/^https?:\/\/([^\/]+)(\/[^?#]*)/i);
+  return m ? m[1] + m[2] : String(url || '');
+}
+
+function grupoPrioridad(url) {
+  if (/uqload|mp4upload/i.test(url)) return 0;
+  if (/voe\.sx|cloudwindow/i.test(url)) return 1;
+  return 2;
+}
+
 // ---------------------------------------------------------------------------
 // flujo principal
 // ---------------------------------------------------------------------------
@@ -328,100 +483,128 @@ async function extraer(tmdbId, mediaType, season, episode, title) {
   var tipo = mediaType === 'movie' ? 'movie' : 'tv';
   if (!tmdbId && !title) return [];
 
-  var candidatosMain = [];
-  if (title) candidatosMain.push(title);
   var info = await getTmdbInfo(tmdbId, tipo);
+  var titles = [];
+  if (title) titles.push(title);
   if (info) {
-    if (info.title && candidatosMain.indexOf(info.title) < 0) candidatosMain.push(info.title);
-    if (info.originalTitle && candidatosMain.indexOf(info.originalTitle) < 0) candidatosMain.push(info.originalTitle);
-  }
-  var altTitles = await getTmdbAltTitles(tmdbId, tipo);
-  var candidatosAlt = [];
-  for (var ai = 0; ai < altTitles.length && candidatosAlt.length < 9; ai++) {
-    if (candidatosMain.indexOf(altTitles[ai]) < 0 && candidatosAlt.indexOf(altTitles[ai]) < 0) candidatosAlt.push(altTitles[ai]);
-  }
-  var candidatos = candidatosMain.concat(candidatosAlt);
-  if (!candidatos.length) return [];
-
-  var seriesUrl = null;
-  var bestScore = -1;
-  for (var ci = 0; ci < candidatos.length; ci++) {
-    // Un match de titulo principal basta: los alternativos NO lo desplazan.
-    // Sin esto, el alternativo 'Saint Seiya' (100 exacto) reemplazaba la ficha
-    // buena 'Saint Seiya (Los Caballeros del Zodiaco)' (45) por la duplicada
-    // /anime/saint-seiya, cuyo cap. 1 solo trae embeds muertos (mega,
-    // zippyshare, streamtape) y el provider quedaba en 0 streams.
-    if (ci >= candidatosMain.length && bestScore > 0) break;
-    var hit = await searchSite(candidatos[ci]);
-    if (hit && hit.score > bestScore) {
-      bestScore = hit.score;
-      seriesUrl = hit.url;
+    for (var ti = 0; ti < info.titles.length; ti++) {
+      if (titles.indexOf(info.titles[ti]) < 0) titles.push(info.titles[ti]);
     }
-    if (bestScore >= 100) break;
   }
-  if (!seriesUrl) return [];
+  if (!titles.length) return [];
+  console.log('[Monoschinos] Titulos TMDB: ' + titles.join(' | '));
 
-  // la ficha no debe ser una entrada de castellano
-  var pageUrl = seriesUrl;
-  if (tipo === 'tv' && episode) {
-    var epUrl = await getEpisodeUrl(seriesUrl, episode);
-    if (!epUrl) return [];
-    pageUrl = epUrl;
-  } else if (tipo === 'tv') {
-    return []; // sin episodio no hay nada que ver
-  } else if (tipo === 'movie') {
-    // En el sitio la pelicula vive como "episodio 1" (/ver/<slug>-episodio-1):
-    // la ficha /anime/<slug> no trae reproductores. Si no hay lista de
-    // episodios, se cae a la ficha como antes.
-    var epUrlM = await getEpisodeUrl(seriesUrl, 1);
-    if (epUrlM) pageUrl = epUrlM;
+  var targets = objetivos(titles, season);
+  var queries = titles.slice(0, MAX_QUERIES);
+  var candidatos = [];
+  var vistosSlug = {};
+
+  for (var qi = 0; qi < queries.length; qi++) {
+    var results = await searchSite(queries[qi]);
+    console.log('[Monoschinos] Busqueda "' + queries[qi] + '": ' + results.length + ' fichas');
+    for (var ri = 0; ri < results.length; ri++) {
+      var res = results[ri];
+      if (!res.slug || vistosSlug[res.slug]) continue;
+      vistosSlug[res.slug] = true;
+      var p = puntuarFicha(res.title, res.slug, targets, season);
+      if (p.score < 30) continue;
+      candidatos.push({ slug: res.slug, href: res.href, title: res.title, score: p.score, idx: p.idx });
+    }
+    // Una página con coincidencia exacta basta: la búsqueda del sitio ya
+    // trae toda la familia (serie, temporadas, spin-offs) y el desempate
+    // por índice de objetivo elige la serie antes que el spin-off.
+    var hayExacto = false;
+    for (var ci = 0; ci < candidatos.length; ci++) if (candidatos[ci].score >= 100) hayExacto = true;
+    if (hayExacto) break;
   }
-  if (/castellano/i.test(pageUrl)) return [];
 
-  var embeds = await getEmbedUrls(pageUrl);
-  if (!embeds.length) return [];
-  // Priorizar los hosts que resuelven (uqload, mp4upload) y descartar de
-  // entrada los que acaban en null (byse/filemoon, mixdrop sin resolver):
-  // en el caso anime eran intentos perdidos antes de los que sí resuelven.
-  embeds = embeds.filter(function (u) { return !/byse|mixdrop/i.test(u); });
-  embeds.sort(function (a, b) {
-    var pa = /uqload|mp4upload/i.test(a) ? 0 : 1;
-    var pb = /uqload|mp4upload/i.test(b) ? 0 : 1;
-    return pa - pb;
+  // Desempate: a igual puntuación e índice de objetivo, gana el slug más
+  // corto: la ficha pelada ("dragon-ball-super") antes que la variante con
+  // sufijo de idioma ("dragon-ball-super-latino"), que es la misma serie
+  // pero con menos embeds en este caso.
+  candidatos.sort(function (a, b) {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.idx !== b.idx) return a.idx - b.idx;
+    return a.slug.length - b.slug.length;
   });
-  if (embeds.length > MAX_EMBEDS) embeds = embeds.slice(0, MAX_EMBEDS);
-
-  var etiqueta = etiquetaDeTitulo(pageUrl);
-  if (!etiqueta) return [];
-
-  var resueltos = await Promise.all(embeds.map(function (embedUrl) {
-    var server = (embedUrl.match(/:\/\/(?:www\.)?([^.]+)\./) || [])[1] || '?';
-    return resolverEmbed(embedUrl).then(function (r) {
-      if (!r || !r.url) return null;
-      return {
-        title: server + ' · ' + etiqueta,
-        quality: calidadDe(r.quality),
-        language: etiqueta,
-        url: r.url,
-        headers: sanitizePlaybackHeaders(r.url, r.headers || { Referer: embedUrl, 'User-Agent': UA }),
-        __embed: embedUrl,
-      };
-    });
-  }));
-
-  var streams = [];
-  var vistos = {};
-  for (var i = 0; i < resueltos.length; i++) {
-    var s = resueltos[i];
-    if (!s) continue;
-    if (vistos[s.url]) continue;
-    vistos[s.url] = true;
-    delete s.__embed;
-    streams.push(s);
-    if (streams.length >= MAX_STREAMS) break;
+  if (!candidatos.length) {
+    console.log('[Monoschinos] Sin coincidencia en el sitio');
+    return [];
   }
 
-  return filtrarIdioma(streams);
+  var epNum = tipo === 'movie' ? 1 : (parseInt(episode, 10) || 1);
+  if (tipo === 'tv' && !episode) return [];
+
+  for (var ai = 0; ai < candidatos.length && ai < MAX_CANDIDATOS; ai++) {
+    var cand = candidatos[ai];
+    console.log('[Monoschinos] Ficha: "' + cand.title + '" (' + cand.score + ') -> ' + cand.slug);
+    if (/castellano/i.test(cand.href)) continue;
+    var epUrl = await getEpisodeUrl(cand, epNum);
+    if (!epUrl) {
+      console.log('[Monoschinos] Sin episodio ' + epNum + ' en ' + cand.slug);
+      continue;
+    }
+    console.log('[Monoschinos] Episodio: ' + epUrl);
+
+    var embeds = await getEmbedUrls(epUrl);
+    console.log('[Monoschinos] Embeds: ' + embeds.length);
+    // Priorizar los hosts que resuelven (uqload, mp4upload, voe) y descartar
+    // de entrada los que acaban en null (byse/filemoon, mixdrop sin resolver).
+    embeds = embeds.filter(function (u) { return !/byse|mixdrop/i.test(u); });
+    embeds.sort(function (a, b) { return grupoPrioridad(a) - grupoPrioridad(b); });
+    if (embeds.length > MAX_EMBEDS) embeds = embeds.slice(0, MAX_EMBEDS);
+    if (!embeds.length) continue;
+
+    var etiqueta = etiquetaDeTitulo(epUrl);
+    if (!etiqueta) continue;
+
+    // Resolución por oleadas con parada temprana: primero los hosts que
+    // resuelven rápido y bien; solo si no dan 2 streams se prueban los
+    // lentos. Un Promise.all sobre todos esperaba al resolver más lento
+    // aunque los buenos ya estuvieran listos (el caso DBS: 85 s).
+    var streams = [];
+    var vistosUrl = {};
+    var wi = 0;
+    while (wi < embeds.length && streams.length < 2) {
+      var wave = [];
+      if (wi === 0) {
+        while (wi < embeds.length && grupoPrioridad(embeds[wi]) === 0) { wave.push(embeds[wi]); wi++; }
+        if (!wave.length) { wave.push(embeds[wi]); wi++; }
+      } else {
+        while (wi < embeds.length && wave.length < 3) { wave.push(embeds[wi]); wi++; }
+      }
+      console.log('[Monoschinos] Oleada: ' + wave.map(function (w) { return hostDe(w); }).join(','));
+      var resueltos = await Promise.all(wave.map(function (embedUrl) {
+        var server = (embedUrl.match(/:\/\/(?:www\.)?([^.]+)\./) || [])[1] || '?';
+        return resolverEmbed(embedUrl).then(function (r) {
+          if (!r || !r.url) return null;
+          return {
+            title: server + ' · ' + etiqueta,
+            quality: calidadDe(r.quality),
+            language: etiqueta,
+            url: r.url,
+            headers: sanitizePlaybackHeaders(r.url, r.headers || { Referer: embedUrl, 'User-Agent': UA }),
+          };
+        });
+      }));
+      for (var i = 0; i < resueltos.length; i++) {
+        var st = resueltos[i];
+        if (!st) continue;
+        var clave = claveStream(st.url);
+        if (vistosUrl[clave]) continue;
+        vistosUrl[clave] = true;
+        streams.push(st);
+        if (streams.length >= MAX_STREAMS) break;
+      }
+      console.log('[Monoschinos] Oleada lista, resueltos: ' + streams.length);
+    }
+
+    var finales = filtrarIdioma(streams);
+    if (finales.length) return finales;
+    console.log('[Monoschinos] Ficha sin streams, se prueba la siguiente candidata');
+  }
+
+  return [];
 }
 
 export { extraer };

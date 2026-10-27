@@ -4,7 +4,11 @@
 // subtitulado: se descartan los streams de español de España.
 
 import { extraer } from './extractor.js';
-import { withWorkingStreams } from '../shared/validate.js';
+import { filterWorkingStreams } from '../shared/validate.js';
+
+// Validación fail-open (AGENTS.md §5): la sonda ranged GET da 403 desde
+// datacenter en CDN que el reproductor sí abre; si la sonda mata todo lo
+// resuelto, se devuelve lo resuelto sin filtrar en vez de un 0 falso.
 
 // Tope de tiempo del provider (40 s): la app corta a los 60 s.
 function withTimeout(promise, ms) {
@@ -32,12 +36,17 @@ function withTimeout(promise, ms) {
  */
 function getStreams(tmdbId, mediaType, season, episode) {
   var tipo = String(mediaType || 'tv').toLowerCase();
-  return withWorkingStreams(withTimeout(
+  return withTimeout(
     extraer(tmdbId, tipo === 'movie' ? 'movie' : 'tv', season, episode).catch(function () {
       return [];
     }),
     40000
-  ));
+  ).then(function (streams) {
+    if (!streams || !streams.length) return [];
+    return filterWorkingStreams(streams).then(function (valid) {
+      return valid && valid.length ? valid : streams;
+    }).catch(function () { return streams; });
+  });
 }
 
 module.exports = { getStreams };

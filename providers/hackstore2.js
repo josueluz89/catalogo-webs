@@ -1,6 +1,6 @@
 /**
  * hackstore2 - Built from src/hackstore2/
- * Generated: 2026-10-22T08:23:56.623Z
+ * Generated: 2026-10-27T18:06:22.537Z
  */
 
 // src/hackstore2/index.js
@@ -2745,7 +2745,59 @@ var require_tmdb = __commonJS({
         }
       });
     }
-    module2.exports = { getTmdbTitle, getTmdbInfo, getTmdbAliases };
+    function getTmdbFicha(tmdbId, mediaType) {
+      return __async(this, null, function* () {
+        if (!tmdbId)
+          return null;
+        const cleanId = tmdbId.toString().split(":")[0];
+        const type = mediaType === "movie" || mediaType === "movies" ? "movie" : "tv";
+        try {
+          let result;
+          if (cleanId.startsWith("tt")) {
+            const url = `https://api.themoviedb.org/3/find/${cleanId}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=es-MX`;
+            const { data } = yield axios3.get(url, { timeout: 6e3 });
+            result = type === "movie" ? data.movie_results && data.movie_results[0] : data.tv_results && data.tv_results[0] || data.movie_results && data.movie_results[0];
+          } else {
+            const url = `https://api.themoviedb.org/3/${type}/${cleanId}?api_key=${TMDB_API_KEY}&language=es-MX`;
+            const { data } = yield axios3.get(url, { timeout: 6e3 });
+            result = data;
+          }
+          if (!result)
+            return null;
+          const title = result.name || result.title || null;
+          const original = result.original_name || result.original_title || null;
+          const date = result.release_date || result.first_air_date || "";
+          return { title, original, year: date.split("-")[0] || "" };
+        } catch (e) {
+          return null;
+        }
+      });
+    }
+    function getTmdbAltLatinos(tmdbId, mediaType) {
+      return __async(this, null, function* () {
+        if (!tmdbId)
+          return [];
+        const cleanId = tmdbId.toString().split(":")[0];
+        const type = mediaType === "movie" || mediaType === "movies" ? "movie" : "tv";
+        try {
+          const altUrl = `https://api.themoviedb.org/3/${type}/${cleanId}/alternative_titles?api_key=${TMDB_API_KEY}`;
+          const { data } = yield axios3.get(altUrl, { timeout: 5e3 });
+          const altResults = data.titles || data.results || [];
+          const out = [];
+          altResults.forEach((item) => {
+            const t = item && item.title;
+            if (!t || out.indexOf(t) !== -1)
+              return;
+            if (/[a-zA-Z]/.test(t))
+              out.push(t);
+          });
+          return out.slice(0, 3);
+        } catch (e) {
+          return [];
+        }
+      });
+    }
+    module2.exports = { getTmdbTitle, getTmdbInfo, getTmdbAliases, getTmdbFicha, getTmdbAltLatinos };
   }
 });
 var sorting_exports = {};
@@ -2934,7 +2986,7 @@ var require_extractor = __commonJS({
   "src/hackstore2/extractor.js"(exports2, module2) {
     var { fetchText, fetchJson, BASE_URL } = require_http();
     var { resolveEmbed } = require_resolvers();
-    var { getTmdbTitle, getTmdbAliases, getTmdbInfo } = require_tmdb();
+    var { getTmdbTitle, getTmdbFicha, getTmdbAltLatinos } = require_tmdb();
     var engine = require_engine();
     function normalizeSlug(title) {
       if (!title)
@@ -2945,48 +2997,53 @@ var require_extractor = __commonJS({
       return __async(this, null, function* () {
         console.log(`[HackStore] API Fast-Track: ${query} (TMDB: ${tmdbId})`);
         try {
-          const [info, aliases] = yield Promise.all([
-            getTmdbInfo(tmdbId, mediaType),
-            getTmdbAliases(tmdbId, mediaType)
-          ]);
-          const year = (info == null ? void 0 : info.year) || "";
-          const baseTitles = /* @__PURE__ */ new Set();
-          if (query)
-            baseTitles.add(query);
-          if (info == null ? void 0 : info.title)
-            baseTitles.add(info.title);
-          if (aliases)
-            aliases.forEach((a) => baseTitles.add(a));
-          const slugsToTry = [];
-          for (const t of baseTitles) {
-            const sl = normalizeSlug(t);
-            if (!sl)
-              continue;
-            if (year)
-              slugsToTry.push(`${sl}-${year}`);
-            slugsToTry.push(sl);
-          }
-          const uniqueSlugs = [...new Set(slugsToTry)].slice(0, 6);
-          console.log(`[HackStore] R\xE1faga de Slugs (Paralelo):`, uniqueSlugs);
-          let targetId = null;
+          let slugsDe2 = function(titulos) {
+            const out = [];
+            titulos.forEach((t) => {
+              const sl = normalizeSlug(t);
+              if (!sl || out.indexOf(sl) !== -1 && out.indexOf(sl + "-" + year) !== -1)
+                return;
+              if (year && out.indexOf(sl + "-" + year) === -1)
+                out.push(sl + "-" + year);
+              if (out.indexOf(sl) === -1)
+                out.push(sl);
+            });
+            return out;
+          }, probarSlugs2 = function(slugs) {
+            return __async(this, null, function* () {
+              for (let i = 0; i < slugs.length; i++) {
+                const slug = slugs[i];
+                try {
+                  const res = yield fetchJson(`${BASE_URL}/wp-api/v1/single/${postType}?slug=${slug}&postType=${postType}`);
+                  if (res && res.data && res.data._id) {
+                    console.log(`[HackStore] Match slug: ${slug} -> ID: ${res.data._id}`);
+                    return res.data._id;
+                  }
+                } catch (e) {
+                }
+              }
+              return null;
+            });
+          };
+          var slugsDe = slugsDe2, probarSlugs = probarSlugs2;
+          const ficha = yield getTmdbFicha(tmdbId, mediaType);
+          if (!ficha || !ficha.title && !ficha.original)
+            return [];
+          const year = ficha.year || "";
           const postType = mediaType === "movie" || mediaType === "movies" ? "movies" : "tvshows";
-          const idResults = yield Promise.all(uniqueSlugs.map((slug) => __async(this, null, function* () {
-            const endpoint = `${BASE_URL}/wp-api/v1/single/${postType}?slug=${slug}&postType=${postType}`;
-            try {
-              const res = yield fetchJson(endpoint);
-              if (res && res.data && res.data._id)
-                return { slug, id: res.data._id };
-            } catch (e) {
-            }
-            return null;
-          })));
-          const match = idResults.find((r) => r !== null);
-          if (match) {
-            targetId = match.id;
-            console.log(`[HackStore] \xA1Match R\xE1pido! Slug: ${match.slug} -> ID: ${targetId}`);
+          let targetId = yield probarSlugs2(slugsDe2([ficha.title, ficha.original]));
+          if (!targetId) {
+            const alts = yield getTmdbAltLatinos(tmdbId, mediaType);
+            if (alts.length)
+              targetId = yield probarSlugs2(slugsDe2(alts));
           }
           if (!targetId) {
-            console.log("[HackStore] ID Principal no encontrado tras r\xE1faga.");
+            const enTitle = yield getTmdbTitle(tmdbId.toString().split(":")[0], mediaType === "movie" || mediaType === "movies" ? "movie" : "tv", "en-US");
+            if (enTitle)
+              targetId = yield probarSlugs2(slugsDe2([enTitle]));
+          }
+          if (!targetId) {
+            console.log("[HackStore] ID Principal no encontrado tras slugs.");
             return [];
           }
           if (postType === "tvshows") {
@@ -3007,10 +3064,17 @@ var require_extractor = __commonJS({
           const playerResponse = yield fetchJson(`${BASE_URL}/wp-api/v1/player?postId=${targetId}`);
           if (!playerResponse || !playerResponse.data || !playerResponse.data.embeds)
             return [];
+          const vistosEmbed = /* @__PURE__ */ new Set();
           const playerData = playerResponse.data.embeds.filter(function(p) {
             var u = String(p && p.url || "").toLowerCase();
-            return u.indexOf("vimeos") !== -1 || u.indexOf("vms.sh") !== -1 || u.indexOf("videoapp") !== -1;
-          }).slice(0, 4);
+            if (u.indexOf("vimeos") === -1 && u.indexOf("vms.sh") === -1 && u.indexOf("videoapp") === -1)
+              return false;
+            var ruta = u.split("?")[0];
+            if (vistosEmbed.has(ruta))
+              return false;
+            vistosEmbed.add(ruta);
+            return true;
+          }).slice(0, 2);
           const streamPromises = playerData.map((p) => __async(this, null, function* () {
             const lang = (p.lang || "Latino").toLowerCase();
             if (lang.includes("sub") || lang.includes("vose") || lang.includes("eng") || lang.includes("espana"))
@@ -3046,6 +3110,10 @@ var require_extractor = __commonJS({
                 url: resolved.url,
                 quality: resolved.quality || "HD",
                 verified: resolved.verified || false,
+                // Sin isReal: finalizeStreams valida el unico stream y
+                // deja la calidad real de la playlist (720p), no la
+                // etiqueta 1080p del resolver. Cuesta ~6 s y se conserva
+                // porque el cuello real eran TMDB + slugs, no esto.
                 langLabel: "Latino",
                 serverName: resolved.serverName || p.server || "Online",
                 headers: resolved.headers || {}
@@ -3135,6 +3203,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
     return adaptarStreams(streams);
   }).catch(function() {
     return [];
-  }), 4e4);
+  }), 55e3);
 }
 module.exports = { getStreams };

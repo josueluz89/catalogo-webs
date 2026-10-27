@@ -37,7 +37,6 @@ const CASOS_TODOS = [
 const OBJETIVOS = {
   sololatino:            { origen: 'adrian',    file: 'sololatino.js' },
   pelisgo:               { origen: 'adrian',    file: 'pelisgo.js' },
-  pelispanda:            { origen: 'adrian+latinuvio', file: 'pelispanda.js', fileAlt: 'latinuvio' },
   hackstore:             { origen: 'adrian+latinuvio', file: 'hackstore2.js' },
   cinemacity:            { origen: 'adrian',    file: 'cinemacity.js' },
   videasy:               { origen: 'adrian',    file: 'videasy.js' },
@@ -45,8 +44,6 @@ const OBJETIVOS = {
   areshd:                { origen: 'latinuvio', file: 'areshd.js' },
   doramasflix:           { origen: 'latinuvio', file: 'doramasflix.js', casos: CASOS_DORAMA },
   verpelis:              { origen: 'latinuvio', file: 'verpelis.js' },
-  allpeliculasse:        { origen: 'latinuvio', file: 'allpeliculasse.js' },
-  elifilms:              { origen: 'latinuvio', file: 'elifilms.js' },
   megadedeoficial:       { origen: 'latinuvio', file: 'megadedeoficial.js' },
   pelis182:              { origen: 'latinuvio', file: 'pelis182.js' },
   pelisyseries:          { origen: 'latinuvio', file: 'pelisyseries.js' },

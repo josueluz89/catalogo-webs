@@ -4,11 +4,13 @@
 // subtitulado: DUB = latino, sin marca = subtitulado; se descartan los streams de español de España.
 
 import { extraer } from './extractor.js';
-import { withWorkingStreams } from '../shared/validate.js';
 
-// Tope de tiempo del provider (50 s): la app corta a los 60 s. En QuickJS la
-// cadena completa (TMDB + búsqueda + 8 resolvers + validación) ronda los 44 s,
-// así que el tope anterior de 40 s la cortaba a 0 streams en cuanto algo iba lento.
+// Tope de tiempo del provider (55 s): la app corta a los 60 s.
+// 2026-10-27: ya NO se envuelve con withWorkingStreams — re-bajar cada
+// stream para validarlo costaba ~20-30 s y era lo que lo dejaba sobre
+// 60 s. La validacion vive ahora dentro de extraer (parada temprana +
+// sonda solo del HLS propio; los demas resolvers traen su prueba en la
+// pagina del embed viva, fail-open segun AGENTS §5).
 function withTimeout(promise, ms) {
   if (typeof setTimeout === 'undefined') return promise;
   return Promise.race([
@@ -33,12 +35,12 @@ function withTimeout(promise, ms) {
  */
 function getStreams(tmdbId, mediaType, season, episode) {
   var tipo = String(mediaType || 'tv').toLowerCase();
-  return withWorkingStreams(withTimeout(
+  return withTimeout(
     extraer(tmdbId, tipo === 'movie' ? 'movie' : 'tv', season, episode).catch(function () {
       return [];
     }),
-    50000
-  ));
+    55000
+  );
 }
 
 module.exports = { getStreams };

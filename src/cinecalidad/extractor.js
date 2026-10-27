@@ -1,17 +1,28 @@
-import { fetchText, fetchJson } from '../shared/http.js';
+import { fetchJson, fetchText } from '../shared/http.js';
 import { getEmbedResolver, mapDomain } from '../shared/embedResolvers.js';
 
-const TMDB_API_KEY = '1f54bd990f1cdfb230adb312546d765d';
-const SEARCH_URL = 'https://www.cinecalidad.ec';
-const FALLBACK_URLS = ['https://www.cinecalidad.ec', 'https://cinecalidad.ec', 'https://cinecalidad.to'];
+// Reescritura limpia (2026-10-27). El provider viejo raspaba HTML de
+// cinecalidad.ec/.to, que hoy redirigen (301 de Cloudflare) a
+// cinecalidad.org, y esa web ya no sirve catálogo en HTML: home y
+// búsqueda devuelven el mismo shell SPA de 30.538 bytes, sin <article>.
+// El sitio NO está muerto: su API nueva, declarada en el propio shell
+// (fastApi: cinecalidad.org/wp-api/v1) y verificada contra el sitio real,
+// busca, lista episodios y sirve players:
+//   GET /search?postType=any&q=<palabra>&postsPerPage=16
+//   GET /single/episodes/list?_id=<serie>&season=<S>&page=1&postsPerPage=100
+//   GET /player?postId=<id>&demo=0   (postId con I mayúscula; post_id da
+//                                     "Invalid ID" con un embed basura)
+// Los embeds traen url, server, lang y quality. El castellano se descarta
+// desde la lista, antes de resolver; el orden es Latino primero y luego
+// Subtitulado/Inglés/Japonés, con parada en 2 streams (1 por idioma).
 
-var ACCENT_MAP = { 'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'ü': 'u', 'ñ': 'n', 'Á': 'a', 'É': 'a', 'Í': 'i', 'Ó': 'o', 'Ú': 'u', 'Ü': 'u', 'Ñ': 'n', 'à': 'a', 'è': 'e', 'ì': 'i', 'ò': 'o', 'ù': 'u', 'â': 'a', 'ê': 'e', 'î': 'i', 'ô': 'o', 'û': 'u', 'ä': 'a', 'ë': 'e', 'ï': 'i', 'ö': 'o', 'ç': 'c', 'ã': 'a', 'õ': 'o' };
+var TMDB_KEY = '1f54bd990f1cdfb230adb312546d765d';
+var API_URL = 'https://cinecalidad.org/wp-api/v1/';
 
+var ACCENT_MAP = { 'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'ü': 'u', 'ñ': 'n', 'Á': 'a', 'É': 'e', 'Í': 'i', 'Ó': 'o', 'Ú': 'u', 'Ü': 'u', 'Ñ': 'n', 'à': 'a', 'è': 'e', 'ì': 'i', 'ò': 'o', 'ù': 'u', 'â': 'a', 'ê': 'e', 'î': 'i', 'ô': 'o', 'û': 'u', 'ä': 'a', 'ë': 'e', 'ï': 'i', 'ö': 'o', 'ç': 'c', 'ã': 'a', 'õ': 'o' };
 function stripAccents(s) {
-  return (s || '').replace(/[^\x00-\x7F]/g, function(c) { return ACCENT_MAP[c] || ''; });
+  return (s || '').replace(/[^\x00-\x7F]/g, function (c) { return ACCENT_MAP[c] || ''; });
 }
-
-// QuickJS (Nuvio) has no String.normalize: explicit accent map instead.
 function normalizeText(text) {
   if (!text) return '';
   return stripAccents(text.toLowerCase())
@@ -19,165 +30,234 @@ function normalizeText(text) {
     .replace(/\s+/g, ' ')
     .trim();
 }
+function stripYear(title) {
+  return (title || '').replace(/\s*\(\d{4}\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function toTmdbType(t) {
+  return (t === 'tv' || t === 'series' || t === 'anime') ? 'tv' : 'movie';
+}
 
-function getMediaTitle(tmdbId, tmdbType) {
-  var url = 'https://api.themoviedb.org/3/' + tmdbType + '/' + tmdbId + '?api_key=' + TMDB_API_KEY + '&language=es-MX';
-  return fetchJson(url).then(function(data) {
-    var isMovie = tmdbType === 'movie';
-    var date = isMovie ? data.release_date : data.first_air_date;
+function fetchTmdb(tmdbId, type) {
+  function lang(l) {
+    return fetchText('https://api.themoviedb.org/3/' + type + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=' + l, { headers: { Accept: 'application/json' } })
+      .then(function (raw) { try { return JSON.parse(raw); } catch (e) { return null; } })
+      .catch(function () { return null; });
+  }
+  return Promise.all([lang('es-MX'), lang('es-ES'), lang('en-US')]).then(function (rs) {
+    var es = rs[0], eses = rs[1], en = rs[2];
+    var isMovie = type === 'movie';
+    var dateStr = (es && (isMovie ? es.release_date : es.first_air_date)) ||
+      (en && (isMovie ? en.release_date : en.first_air_date)) || '';
     return {
-      title: isMovie ? data.title : data.name,
-      originalTitle: isMovie ? data.original_title : data.original_name,
-      year: date && date.length >= 4 ? date.slice(0, 4) : null,
+      titles: [
+        es && (isMovie ? es.title : es.name),
+        eses && (isMovie ? eses.title : eses.name),
+        en && (isMovie ? en.title : en.name),
+        es && (isMovie ? es.original_title : es.original_name),
+      ].filter(function (x) { return x; }),
+      year: dateStr && dateStr.length >= 4 ? dateStr.slice(0, 4) : null,
     };
   });
 }
 
-function searchSite(query) {
-  function tryUrls(idx) {
-    if (idx >= FALLBACK_URLS.length) return Promise.resolve([]);
-    var url = FALLBACK_URLS[idx] + '/?s=' + encodeURIComponent(query);
-    return fetchText(url, { headers: { Referer: FALLBACK_URLS[idx] + '/' } }).then(function(html) {
-      var out = [];
-      var artRe = /<article[\s\S]*?<\/article>/gi;
-      var am;
-      while ((am = artRe.exec(html)) !== null) {
-        var lm = am[0].match(/<a\b[^>]*href="([^"]+)"/i);
-        if (!lm) continue;
-        var href = lm[1];
-        if (href.indexOf('/ver-pelicula/') === -1 && href.indexOf('/ver-serie/') === -1) continue;
-        var title = am[0].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-        out.push({ title: title.slice(0, 80), href: href });
-      }
-      if (out.length > 0) return out;
-      return tryUrls(idx + 1);
-    }).catch(function() { return tryUrls(idx + 1); });
+var STOPWORDS = { y: 1, de: 1, la: 1, el: 1, los: 1, las: 1, un: 1, una: 1, del: 1, al: 1, e: 1, u: 1, o: 1, en: 1, con: 1, por: 1, para: 1, the: 1, a: 1, an: 1, of: 1, and: 1, to: 1, in: 1, on: 1, vs: 1 };
+
+function searchWords(titles) {
+  var out = [];
+  var seen = {};
+  for (var t = 0; t < titles.length; t++) {
+    var words = normalizeText(titles[t]).split(' ').filter(Boolean);
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i];
+      if (w.length < 3 || STOPWORDS[w] || seen[w]) continue;
+      seen[w] = true;
+      out.push(w);
+    }
   }
-  return tryUrls(0);
+  return out.slice(0, 4);
 }
 
-function pickBest(cands, media, wantTv, ignoreYear) {
-  var no = normalizeText(media.originalTitle || '');
-  var nt = normalizeText(media.title || '');
+function api(path) {
+  return fetchJson(API_URL + path).then(function (res) {
+    if (!res || res.error) throw new Error('CineCalidad API error');
+    return res.data;
+  });
+}
+
+function searchPosts(word) {
+  return api('search?postType=any&q=' + encodeURIComponent(word) + '&postsPerPage=16')
+    .then(function (data) { return (data && data.posts) || []; })
+    .catch(function () { return []; });
+}
+
+function pickPost(posts, media, wantTv) {
+  var want = wantTv ? ['tvshows', 'animes'] : ['movies'];
+  var candTitles = media.titles.map(function (t) { return normalizeText(t); });
   var best = null, bestScore = -1;
-  for (var i = 0; i < cands.length; i++) {
-    var c = cands[i];
-    var isTv = c.href.indexOf('/ver-serie/') !== -1;
-    if (wantTv !== isTv) continue;
-    var nc = normalizeText(c.title);
+  for (var i = 0; i < posts.length; i++) {
+    var p = posts[i];
+    if (want.indexOf(p.type) === -1) continue;
+    var pt = normalizeText(stripYear(p.title || ''));
     var score = 0;
-    if (nc === no || nc === nt) score = 100;
-    else if ((no && (nc.indexOf(no) !== -1 || no.indexOf(nc) !== -1)) ||
-             (nt && (nc.indexOf(nt) !== -1 || nt.indexOf(nc) !== -1))) score = 80;
+    for (var c = 0; c < candTitles.length; c++) {
+      if (pt === candTitles[c]) { score = 100; break; }
+      if (pt.indexOf(candTitles[c]) !== -1 || candTitles[c].indexOf(pt) !== -1) score = Math.max(score, 80);
+    }
     if (score === 0) {
-      var words = (no + ' ' + nt).split(' ').filter(function(w) { return w.length >= 4; });
+      var ptWords = pt.split(' ').filter(Boolean);
+      var qWords = [];
+      for (var t = 0; t < candTitles.length; t++) {
+        var ws = candTitles[t].split(' ').filter(Boolean);
+        for (var w = 0; w < ws.length; w++) {
+          if (qWords.indexOf(ws[w]) === -1) qWords.push(ws[w]);
+        }
+      }
       var qm = 0;
-      for (var w = 0; w < words.length; w++) {
-        if (nc.indexOf(words[w]) !== -1) qm++;
+      for (var q = 0; q < qWords.length; q++) {
+        if (pt.indexOf(qWords[q]) !== -1) qm++;
       }
       if (qm === 0) continue;
       score = qm * 10;
     }
-    if (!ignoreYear && media.year && c.title.indexOf(media.year) !== -1) score += 5;
-    if (score > bestScore) { bestScore = score; best = c; }
+    if (media.year && (p.title || '').indexOf(media.year) !== -1) score += 5;
+    if (score > bestScore) { bestScore = score; best = p; }
   }
-  if (!best || bestScore < 10) return null;
   return best;
 }
 
-function optionsFromPage(html) {
-  var out = [];
-  var re = /<li[^>]*data-option=["']([^"']+)["'][^>]*>/gi;
-  var m;
-  while ((m = re.exec(html)) !== null) {
-    var url = m[1];
-    if (!url || url.indexOf('http') !== 0) continue;
-    if (url.indexOf('youtube.com') !== -1 || url.indexOf('youtu.be') !== -1) continue;
-    out.push(url);
-  }
+function findPost(media, wantTv) {
+  var words = searchWords(media.titles);
+  if (!words.length) return Promise.resolve(null);
+  var posts = [];
   var seen = {};
-  return out.filter(function(u) {
-    if (seen[u]) return false;
-    seen[u] = true;
-    return true;
+  function tryWord(i) {
+    if (i >= words.length) return Promise.resolve();
+    return searchPosts(words[i]).then(function (list) {
+      for (var j = 0; j < list.length; j++) {
+        if (!seen[list[j]._id]) { seen[list[j]._id] = true; posts.push(list[j]); }
+      }
+    }).then(function () {
+      var best = pickPost(posts, media, wantTv);
+      if (best) {
+        var pb = normalizeText(stripYear(best.title || ''));
+        for (var c = 0; c < media.titles.length; c++) {
+          if (pb === normalizeText(media.titles[c])) return;
+        }
+      }
+      return tryWord(i + 1);
+    });
+  }
+  return tryWord(0).then(function () {
+    return pickPost(posts, media, wantTv);
   });
 }
 
-function resolveOptions(urls) {
+// Portero de idioma: la etiqueta lang del embed manda. Pasan Latino,
+// Subtitulado, Inglés y Japonés; se botan castellano, es_ES y «Español»
+// a secas; sin etiqueta, pasa.
+function langLabel(lang) {
+  var s = stripAccents((lang || '').toLowerCase());
+  if (s.indexOf('castellano') !== -1 || s.indexOf('espa') !== -1) return null;
+  if (s.indexOf('latino') !== -1 || s.indexOf('lat') !== -1 || s.indexOf('mexic') !== -1) return 'Latino';
+  if (s.indexOf('subtitulado') !== -1 || s.indexOf('sub') !== -1) return 'Subtitulado';
+  if (s.indexOf('ingles') !== -1 || s.indexOf('english') !== -1) return 'Inglés';
+  if (s.indexOf('japones') !== -1 || s.indexOf('japan') !== -1) return 'Japonés';
+  if (!lang) return 'Latino';
+  return null;
+}
+
+var LANG_ORDER = ['Latino', 'Subtitulado', 'Inglés', 'Japonés'];
+var HOST_PRIORITY = ['vimeos', 'filemoon', 'streamwish', 'vidhide', 'uqload', 'dood'];
+
+function hostRank(url) {
+  for (var i = 0; i < HOST_PRIORITY.length; i++) {
+    if (url.indexOf(HOST_PRIORITY[i]) !== -1) return i;
+  }
+  return HOST_PRIORITY.length;
+}
+
+function playerEmbeds(postId) {
+  return api('player?postId=' + postId + '&demo=0').then(function (data) {
+    // data.error (Invalid ID / Invalid post type) viene con un embed
+    // basura (la.movie): sin embeds válidos no hay nada que resolver.
+    if (!data || data.error) return [];
+    return data.embeds || [];
+  }).catch(function () { return []; });
+}
+
+function resolveEmbeds(embeds) {
+  var list = [];
+  for (var i = 0; i < embeds.length; i++) {
+    var e = embeds[i] || {};
+    var url = e.url || '';
+    if (!url || url.indexOf('http') !== 0) continue;
+    var label = langLabel(e.lang);
+    if (!label) continue;
+    var fixed = mapDomain(url);
+    if (!getEmbedResolver(fixed)) continue;
+    list.push({ url: fixed, label: label, lang: e.lang || '', quality: e.quality || 'HD', server: e.server || '' });
+  }
+  list.sort(function (a, b) {
+    var la = LANG_ORDER.indexOf(a.label), lb = LANG_ORDER.indexOf(b.label);
+    if (la !== lb) return la - lb;
+    return hostRank(a.url) - hostRank(b.url);
+  });
+  // Un stream por idioma, en orden, parando con 1 Latino + 1 Subtitulado
+  // (o el segundo idioma que pase). Nunca se resuelve castellano.
   var streams = [];
-  var jobs = urls.map(function(src) {
-    var fixed = mapDomain(src);
-    var resolver = getEmbedResolver(fixed);
-    if (!resolver) return Promise.resolve();
-    var host = '';
-    try { host = fixed.split('/')[2]; } catch (e) {}
-    return resolver(fixed).then(function(r) {
+  var langsDone = {};
+  function tryNext(i) {
+    if (i >= list.length) return Promise.resolve(streams);
+    if (streams.length >= 2) return Promise.resolve(streams);
+    var e = list[i];
+    if (langsDone[e.label]) return tryNext(i + 1);
+    var resolver = getEmbedResolver(e.url);
+    return resolver(e.url).then(function (r) {
       if (r && r.url) {
+        langsDone[e.label] = true;
+        var host = '';
+        try { host = e.url.split('/')[2]; } catch (err) {}
         streams.push({
-          name: 'CineCalidad (' + host + ')',
-          title: (r.quality || 'HD') + ' · LAT · ' + host,
+          name: 'CineCalidad (' + (e.server || host) + ')',
+          title: (r.quality || e.quality) + ' · ' + e.label + ' · ' + host,
           url: r.url,
-          quality: r.quality || 'HD',
+          quality: r.quality || e.quality,
           headers: r.headers,
         });
       }
-    }).catch(function() {});
-  });
-  return Promise.all(jobs).then(function() { return streams; });
+      return tryNext(i + 1);
+    }).catch(function () { return tryNext(i + 1); });
+  }
+  return tryNext(0);
 }
 
-function movieStreams(pageUrl) {
-  return fetchText(pageUrl, { headers: { Referer: SEARCH_URL + '/' } })
-    .then(function(html) { return resolveOptions(optionsFromPage(html)); })
-    .catch(function() { return []; });
-}
-
-function episodeStreams(serieUrl, season, episode) {
-  return fetchText(serieUrl, { headers: { Referer: SEARCH_URL + '/' } })
-    .then(function(html) {
-      var target = '-' + season + 'x' + episode + '/';
-      var re = /href="([^"]*ver-el-episodio[^"]*)"/gi;
-      var m, epUrl = null;
-      while ((m = re.exec(html)) !== null) {
-        if (m[1].indexOf(target) !== -1) { epUrl = m[1]; break; }
-        if (!epUrl) epUrl = m[1];
+function episodeStreams(serieId, season, episode) {
+  return api('single/episodes/list?_id=' + serieId + '&season=' + season + '&page=1&postsPerPage=100')
+    .then(function (data) {
+      var eps = (data && data.posts) || [];
+      for (var i = 0; i < eps.length; i++) {
+        if (eps[i].season_number === season && eps[i].episode_number === episode) {
+          return playerEmbeds(eps[i]._id).then(resolveEmbeds);
+        }
       }
-      if (!epUrl) return [];
-      return fetchText(epUrl, { headers: { Referer: serieUrl } });
+      return [];
     })
-    .then(function(html) {
-      if (!html) return [];
-      return resolveOptions(optionsFromPage(html));
-    })
-    .catch(function() { return []; });
+    .catch(function () { return []; });
 }
 
 export function extractStreams(tmdbId, mediaType, season, episode) {
-  // Nuvio passes Stremio content types ("movie"/"series"); TMDB needs "movie"/"tv".
-  var tmdbType = (mediaType === 'tv' || mediaType === 'series' || mediaType === 'anime') ? 'tv' : 'movie';
+  var tmdbType = toTmdbType(mediaType);
   var wantTv = tmdbType === 'tv';
-  return getMediaTitle(tmdbId, tmdbType)
-    .then(function(media) {
-      var queries = [];
-      if (media.originalTitle) queries.push(media.originalTitle);
-      if (media.title && media.title !== media.originalTitle) queries.push(media.title);
-      if (!queries.length) return [];
-      var all = [];
-      var chain = Promise.resolve();
-      queries.forEach(function(q) {
-        chain = chain.then(function() {
-          return searchSite(q).then(function(c) { all = all.concat(c); });
-        });
-      });
-      return chain.then(function() {
-        var best = pickBest(all, media, wantTv, false);
-        if (!best) best = pickBest(all, media, wantTv, true);
-        if (!best) return [];
-        if (!wantTv) return movieStreams(best.href);
-        return episodeStreams(best.href, parseInt(season, 10) || 1, parseInt(episode, 10) || 1);
+  return fetchTmdb(tmdbId, tmdbType)
+    .then(function (media) {
+      if (!media.titles.length) return [];
+      return findPost(media, wantTv).then(function (post) {
+        if (!post) return [];
+        if (!wantTv) return playerEmbeds(post._id).then(resolveEmbeds);
+        return episodeStreams(post._id, parseInt(season, 10) || 1, parseInt(episode, 10) || 1);
       });
     })
-    .catch(function(err) {
+    .catch(function (err) {
       console.error('[CineCalidad] Error: ' + (err && err.message ? err.message : err));
       return [];
     });

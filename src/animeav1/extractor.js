@@ -79,33 +79,51 @@ function cleanTitle(title) {
 // TMDB
 // ---------------------------------------------------------------------------
 
-function tmdbTitulo(id, tipo, lang) {
-  var url = 'https://api.themoviedb.org/3/' + tipo + '/' + id + '?api_key=' + TMDB_KEY + '&language=' + lang;
+// TMDB recortado (2026-10-27, velocidad): 2 llamadas en vez de 3.
+// La ficha es-MX trae titulo + original en un JSON; los alternativos
+// traen el romaji que el sitio usa como titulo (p. ej. "Shingeki no
+// Kyojin" para Attack on Titan, cuyo original TMDB es kanji y no casa
+// con nada del sitio). Se cae la llamada en-US (duplicaba es-MX) y la
+// ficha sin idioma (su original kanji generaba una busqueda inutil).
+function tmdbFichaEsMX(id, tipo) {
+  var url = 'https://api.themoviedb.org/3/' + tipo + '/' + id + '?api_key=' + TMDB_KEY + '&language=es-MX';
   return fetchText(url, { headers: { 'User-Agent': UA } }, 10000)
     .then(function (raw) {
       var res = JSON.parse(raw);
-      return tipo === 'movie' ? res.title : res.name;
+      return {
+        titleEsMX: tipo === 'movie' ? res.title : res.name,
+        titleOriginal: tipo === 'movie' ? res.original_title : res.original_name,
+      };
     })
-    .catch(function () { return null; });
+    .catch(function () { return {}; });
 }
 
-function tmdbOriginal(id, tipo) {
-  var url = 'https://api.themoviedb.org/3/' + tipo + '/' + id + '?api_key=' + TMDB_KEY;
+function tmdbAltLatinos(id, tipo) {
+  var url = 'https://api.themoviedb.org/3/' + tipo + '/' + id + '/alternative_titles?api_key=' + TMDB_KEY;
   return fetchText(url, { headers: { 'User-Agent': UA } }, 10000)
     .then(function (raw) {
       var res = JSON.parse(raw);
-      return tipo === 'movie' ? res.original_title : res.original_name;
+      var list = res.results || res.titles || [];
+      var romaji = [];
+      var otros = [];
+      for (var i = 0; i < list.length; i++) {
+        var t = list[i] && list[i].title;
+        if (!t || /[a-zA-Z]/.test(t) === false) continue;
+        var esRomaji = list[i].type && String(list[i].type).toLowerCase().indexOf('romaji') !== -1;
+        if (esRomaji && romaji.indexOf(t) === -1) romaji.push(t);
+        else if (!esRomaji && otros.indexOf(t) === -1) otros.push(t);
+      }
+      return romaji.concat(otros).slice(0, 5);
     })
-    .catch(function () { return null; });
+    .catch(function () { return []; });
 }
 
 function getTmdbTitles(tmdbId, tipo) {
   return Promise.all([
-    tmdbTitulo(tmdbId, tipo, 'es-MX'),
-    tmdbTitulo(tmdbId, tipo, 'en-US'),
-    tmdbOriginal(tmdbId, tipo),
+    tmdbFichaEsMX(tmdbId, tipo),
+    tmdbAltLatinos(tmdbId, tipo),
   ]).then(function (r) {
-    return { titleEsMX: r[0], titleEn: r[1], titleOriginal: r[2] };
+    return { titleEsMX: r[0].titleEsMX, titleOriginal: r[0].titleOriginal, altTitles: r[1] };
   }).catch(function () {
     return {};
   });
@@ -114,7 +132,7 @@ function getTmdbTitles(tmdbId, tipo) {
 function generateQueries(info) {
   var queries = [];
   function addQuery(q) {
-    if (!q) return;
+    if (!q || /[a-zA-Z]/.test(q) === false) return;
     var cleanQ = String(q).replace(/[,;.:!?]/g, '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
     if (!cleanQ) return;
     if (queries.indexOf(cleanQ) < 0) queries.push(cleanQ);
@@ -122,9 +140,9 @@ function generateQueries(info) {
     if (stripped !== cleanQ && queries.indexOf(stripped) < 0) queries.push(stripped);
   }
   addQuery(info.titleEsMX);
-  addQuery(info.titleEn);
+  (info.altTitles || []).forEach(addQuery);
   addQuery(info.titleOriginal);
-  return queries;
+  return queries.slice(0, 5);
 }
 
 // ---------------------------------------------------------------------------
@@ -197,8 +215,9 @@ function parseDevalueData(dataArray) {
     }
   }
 
+  // Solo embeds: los downloads duplican los mismos mp4upload/streamtape
+  // (y mega/1fichier, ya descartados) y solo anadian candidatos muertos.
   extractLang('embeds');
-  extractLang('downloads');
   return servers;
 }
 
@@ -303,7 +322,7 @@ async function extraer(tmdbId, mediaType, season, episode) {
   if (!info.titleEsMX && !info.titleOriginal && !info.titleEn) return [];
 
   var queries = generateQueries(info);
-  var matchTitles = [info.titleEsMX, info.titleOriginal, info.titleEn];
+  var matchTitles = [info.titleEsMX].concat(info.altTitles || []).concat([info.titleOriginal]);
 
   var best = null;
   var bestScore = -1;
@@ -320,12 +339,22 @@ async function extraer(tmdbId, mediaType, season, episode) {
 
       var score = 0;
       var cleanedResult = cleanTitle(res.title);
+      var slugResult = cleanedResult.replace(/\s+/g, '-');
       for (var ti = 0; ti < matchTitles.length; ti++) {
         if (!matchTitles[ti]) continue;
         var cleanedT = cleanTitle(matchTitles[ti]);
         if (!cleanedT) continue;
-        if (cleanedResult === cleanedT) score = Math.max(score, 100);
-        else if (cleanedResult.indexOf(cleanedT) !== -1 || cleanedT.indexOf(cleanedResult) !== -1) score = Math.max(score, 50);
+        // Coincidencia exacta por titulo o por slug: el slug del sitio
+        // es el titulo romaji con guiones ("shingeki-no-kyojin"), y con
+        // el romaji ya en matchTitles la primera busqueda ("Attack on
+        // Titan", que lista esa ficha) cierra sin mas busquedas.
+        // El orden del candidato pesa (20 por puesto): sin eso, un alt
+        // como "Shingeki no Kyojin The Final Season" casa exacto con la
+        // temporada y le gana a la serie base, que aparece despues en
+        // la lista. Exacto = 1000 - 20*ti, parcial = 500 - 20*ti; el
+        // bonus de tipo (<=15) nunca invierte el orden de candidatos.
+        if (cleanedResult === cleanedT || slugResult === cleanedT.replace(/\s+/g, '-')) score = Math.max(score, 1000 - ti * 20);
+        else if (cleanedResult.indexOf(cleanedT) !== -1 || cleanedT.indexOf(cleanedResult) !== -1) score = Math.max(score, 500 - ti * 20);
       }
 
       var normType = sinAcentos(res.type);
@@ -350,7 +379,7 @@ async function extraer(tmdbId, mediaType, season, episode) {
         bestAny = res;
       }
     }
-    if (bestScore >= 100) break;
+    if (bestScore >= 700) break; // exacto (>=860) si, parcial (<=515) no
   }
 
   var matched = best || (bestAnyScore >= 5 ? bestAny : null);
@@ -379,8 +408,19 @@ async function extraer(tmdbId, mediaType, season, episode) {
 
   if (!servers.length) return [];
 
-  var tareas = [];
-  for (var si = 0; si < servers.length && tareas.length < MAX_STREAMS; si++) {
+  // Resolucion en SECUENCIA, por coste del resolver, con parada temprana
+  // (2026-10-27): antes eran hasta 8 resolvers en Promise.all (Byse con
+  // 4 llamadas, Voe con validacion, VidHide/StreamTape nulos) y luego
+  // withWorkingStreams re-bajaba cada stream para validarlo (~20-30 s
+  // mas). En el arnes el fetch es curl sincrono, asi que el paralelo
+  // sumaba igual. Orden: HLS propio (sin fetch) > YourUpload/MP4Upload
+  // (1 pagina) > Voe > resto > Byse/Filemoon (el mas caro, al final).
+  // Parada: 1 Latino + 1 Subtitulado; si no hay SUB en la ficha, 2
+  // Latinos bastan. Solo se sondea el HLS propio (URL construida, no
+  // extraida de pagina viva); el resto trae su prueba en la resolucion
+  // (pagina del embed viva) y no se re-baja (fail-open, AGENTS §5).
+  var candidatos = [];
+  for (var si = 0; si < servers.length; si++) {
     var s = servers[si];
     if (!s.url) continue;
     var host = '';
@@ -392,32 +432,65 @@ async function extraer(tmdbId, mediaType, season, episode) {
       if (host.indexOf(SKIP_HOSTS[hi]) !== -1) skip = true;
     }
     if (skip) continue;
-    tareas.push(s);
+    candidatos.push(s);
   }
-
-  var resueltos = await Promise.all(tareas.map(function (t) {
-    return resolverEmbed(t.title, t.url).then(function (r) {
-      if (!r || !r.url) return null;
-      var idioma = t.dub ? 'Latino' : 'Subtitulado';
-      var nombre = String(t.title || 'Server');
-      return {
-        title: nombre + ' · ' + idioma,
-        quality: calidadDe(r.quality),
-        language: idioma,
-        url: r.url,
-        headers: r.headers,
-      };
-    });
-  }));
-
+  function rangoServidor(s) {
+    var n = String(s.title || '').toLowerCase();
+    var u = String(s.url || '').toLowerCase();
+    if (n === 'hls' || u.indexOf('zilla-networks') !== -1) return 0;
+    if (n.indexOf('yourupload') !== -1 || n.indexOf('mp4upload') !== -1) return 1;
+    if (n.indexOf('voe') !== -1) return 2;
+    if (n.indexOf('byse') !== -1 || n.indexOf('filemoon') !== -1) return 4;
+    return 3;
+  }
+  var ordenados = candidatos.map(function (s, idx) { return { s: s, idx: idx }; });
+  ordenados.sort(function (a, b) {
+    var d = rangoServidor(a.s) - rangoServidor(b.s);
+    return d !== 0 ? d : a.idx - b.idx;
+  });
+  var haySub = false;
+  var totalSub = 0;
+  var totalLat = 0;
+  for (var ci = 0; ci < candidatos.length; ci++) {
+    if (candidatos[ci].dub) totalLat++;
+    else { haySub = true; totalSub++; }
+  }
   var streams = [];
   var vistosUrl = {};
-  for (var k = 0; k < resueltos.length; k++) {
-    var st = resueltos[k];
-    if (!st) continue;
-    if (vistosUrl[st.url]) continue;
-    vistosUrl[st.url] = true;
-    streams.push(st);
+  var tieneLat = false;
+  var tieneSub = false;
+  var probadosLat = 0;
+  var probadosSub = 0;
+  for (var oi = 0; oi < ordenados.length; oi++) {
+    if (tieneLat && tieneSub) break;
+    if (!haySub && tieneLat && streams.length >= 2) break;
+    if (streams.length >= MAX_STREAMS) break;
+    var t = ordenados[oi].s;
+    // Si ya hay Latino y aun queda SUB por probar, no gastar un
+    // resolver caro en otro Latino (y viceversa).
+    if (t.dub && tieneLat && haySub && !tieneSub && probadosSub < totalSub) continue;
+    if (!t.dub && tieneSub && !tieneLat && probadosLat < totalLat) continue;
+    if (t.dub) probadosLat++; else probadosSub++;
+    var r = await resolverEmbed(t.title, t.url);
+    if (!r || !r.url) continue;
+    var esHLSPropio = String(t.title || '').toLowerCase() === 'hls' || String(t.url || '').indexOf('zilla-networks') !== -1;
+    if (esHLSPropio) {
+      var vivo = await fetchText(r.url, { headers: { 'Referer': BASE_URL + '/', 'User-Agent': UA } }, 10000)
+        .then(function (body) { return !!body && body.indexOf('#EXTM3U') !== -1; })
+        .catch(function () { return false; });
+      if (!vivo) continue;
+    }
+    if (vistosUrl[r.url]) continue;
+    vistosUrl[r.url] = true;
+    var idioma = t.dub ? 'Latino' : 'Subtitulado';
+    if (idioma === 'Latino') tieneLat = true; else tieneSub = true;
+    streams.push({
+      title: String(t.title || 'Server') + ' · ' + idioma,
+      quality: calidadDe(r.quality),
+      language: idioma,
+      url: r.url,
+      headers: r.headers,
+    });
   }
 
   return filtrarIdioma(streams);

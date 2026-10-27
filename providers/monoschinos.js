@@ -1,6 +1,6 @@
 /**
  * monoschinos - Built from src/monoschinos/
- * Generated: 2026-10-22T08:11:30.360Z
+ * Generated: 2026-10-27T18:27:14.711Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -1109,8 +1109,10 @@ var HEADERS = {
   "Accept-Language": "es-MX,es;q=0.9",
   "Referer": HOST + "/"
 };
-var MAX_EMBEDS = 4;
+var MAX_EMBEDS = 8;
 var MAX_STREAMS = 8;
+var MAX_CANDIDATOS = 3;
+var MAX_QUERIES = 15;
 function calidadDe(q) {
   var s = String(q || "");
   if (!s || s === "Unknown")
@@ -1124,23 +1126,28 @@ var ACCENTS = {
   "\xE2": "a",
   "\xE3": "a",
   "\xE5": "a",
+  "\u0101": "a",
   "\xE9": "e",
   "\xE8": "e",
   "\xEB": "e",
   "\xEA": "e",
+  "\u0113": "e",
   "\xED": "i",
   "\xEC": "i",
   "\xEF": "i",
   "\xEE": "i",
+  "\u012B": "i",
   "\xF3": "o",
   "\xF2": "o",
   "\xF6": "o",
   "\xF4": "o",
   "\xF5": "o",
+  "\u014D": "o",
   "\xFA": "u",
   "\xF9": "u",
   "\xFC": "u",
   "\xFB": "u",
+  "\u016B": "u",
   "\xF1": "n",
   "\xE7": "c",
   "\xDF": "ss"
@@ -1154,8 +1161,8 @@ function sinAcentos(s) {
   }
   return out;
 }
-function norm(s) {
-  return sinAcentos(s).replace(/[^a-z0-9]/g, "");
+function cleanTitle(s) {
+  return sinAcentos(s).replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").replace(/^\s+|\s+$/g, "");
 }
 var B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
 function base64ToBytes(input) {
@@ -1179,6 +1186,36 @@ function base64ToText(input) {
   for (var i = 0; i < bytes.length; i++)
     out += String.fromCharCode(bytes[i]);
   return out;
+}
+var LANG_TAIL = ["latino", "castellano", "subtitulado", "sub", "espanol", "espana", "doblaje", "dub", "audio", "vose", "vosi"];
+function baseDeTitulo(titulo) {
+  var t = cleanTitle(titulo).replace(/^ver anime\s+/i, "").replace(/\s+online gratis$/i, "");
+  var words = t.split(" ");
+  while (words.length > 1 && LANG_TAIL.indexOf(words[words.length - 1]) !== -1)
+    words.pop();
+  return words.join(" ");
+}
+function sinArticulo(t) {
+  return String(t || "").replace(/^(the|los|las|el|la|lo|un|una|unos|unas)\s+/i, "");
+}
+function esCastellano(titulo, slug) {
+  var t = sinAcentos(titulo) + " " + sinAcentos(slug);
+  return t.indexOf("castellano") !== -1;
+}
+function marcaTemporada(base, slug) {
+  var t = " " + cleanTitle(base) + " " + cleanTitle(slug) + " ";
+  var m = t.match(/\btemporada\s+(\d+)\b/) || t.match(/\bseason\s+(\d+)\b/);
+  if (m)
+    return parseInt(m[1], 10);
+  if (t.indexOf(" final season ") !== -1)
+    return 99;
+  m = t.match(/\s(\d+)\s+parte\s/) || t.match(/\s(\d+)\s+part\s/);
+  if (m)
+    return parseInt(m[1], 10);
+  m = cleanTitle(base).match(/\s(\d+)$/);
+  if (m)
+    return parseInt(m[1], 10);
+  return null;
 }
 var RE_LATINO = /latino|\blat\b|\blat\.|\[lat\]/i;
 var RE_SUB = /\bsub\b|\bsubs\b|subtitulad|\bvose\b|\bvosi\b|\[sub\]/i;
@@ -1207,37 +1244,97 @@ function filtrarIdioma(streams) {
   }
   return out;
 }
-function getTmdbInfo(id, tipo) {
-  var url = "https://api.themoviedb.org/3/" + tipo + "/" + id + "?api_key=" + TMDB_KEY + "&language=es-MX";
+function tmdbJson(path) {
+  var url = "https://api.themoviedb.org/3/" + path + (path.indexOf("?") === -1 ? "?" : "&") + "api_key=" + TMDB_KEY;
   return fetchText(url, { headers: { "User-Agent": UA2 } }, 1e4).then(function(raw) {
-    var res = JSON.parse(raw);
-    return {
-      title: tipo === "movie" ? res.title || res.original_title : res.name || res.original_name,
-      originalTitle: tipo === "movie" ? res.original_title || res.title : res.original_name || res.name
-    };
+    return JSON.parse(raw);
   }).catch(function() {
     return null;
   });
 }
-function getTmdbAltTitles(id, tipo) {
-  var url = "https://api.themoviedb.org/3/" + tipo + "/" + id + "/alternative_titles?api_key=" + TMDB_KEY;
-  return fetchText(url, { headers: { "User-Agent": UA2 } }, 1e4).then(function(raw) {
-    var res = JSON.parse(raw);
-    var arr = res.titles || res.results || [];
-    var out = [];
-    for (var i = 0; i < arr.length; i++) {
-      if (arr[i] && arr[i].title && out.indexOf(arr[i].title) < 0)
-        out.push(arr[i].title);
+function getTmdbInfo(id, tipo) {
+  return Promise.all([
+    tmdbJson(tipo + "/" + id + "?language=es-MX"),
+    tmdbJson(tipo + "/" + id + "?language=es-ES"),
+    tmdbJson(tipo + "/" + id + "?language=en-US"),
+    tmdbJson(tipo + "/" + id + "/alternative_titles")
+  ]).then(function(rs) {
+    var titles = [];
+    function add(t) {
+      if (!t)
+        return;
+      if (titles.indexOf(t) < 0)
+        titles.push(t);
     }
-    return out;
+    for (var i = 0; i < 3; i++) {
+      var res = rs[i];
+      if (!res)
+        continue;
+      add(tipo === "movie" ? res.title : res.name);
+      add(tipo === "movie" ? res.original_title : res.original_name);
+    }
+    var alts = rs[3];
+    if (alts) {
+      var arr = alts.titles || alts.results || [];
+      for (var j = 0; j < arr.length; j++) {
+        if (arr[j] && arr[j].title && cleanTitle(arr[j].title))
+          add(arr[j].title);
+      }
+    }
+    return titles.length ? { titles } : null;
   }).catch(function() {
-    return [];
+    return null;
   });
 }
+function objetivos(titles, season) {
+  var s = parseInt(season, 10) || 1;
+  var out = [];
+  function add(t) {
+    var c = cleanTitle(t);
+    if (c && out.indexOf(c) < 0)
+      out.push(c);
+  }
+  for (var i = 0; i < titles.length; i++) {
+    if (s === 1) {
+      add(titles[i]);
+      add(titles[i] + " temporada 1");
+      add(titles[i] + " season 1");
+    } else {
+      add(titles[i] + " temporada " + s);
+      add(titles[i] + " season " + s);
+      add(titles[i] + " " + s);
+    }
+  }
+  return out;
+}
+function puntuarFicha(siteTitle, slug, targets, season) {
+  if (esCastellano(siteTitle, slug))
+    return { score: -1, idx: 9999 };
+  var base = baseDeTitulo(siteTitle);
+  var s = parseInt(season, 10) || 1;
+  var marca = marcaTemporada(base, slug);
+  if (marca !== null && marca !== s)
+    return { score: -1, idx: 9999 };
+  for (var i = 0; i < targets.length; i++) {
+    var t = targets[i];
+    if (base === t || sinArticulo(base) === sinArticulo(t))
+      return { score: 100, idx: i };
+  }
+  var best = -1;
+  var bestIdx = 9999;
+  for (var j = 0; j < targets.length; j++) {
+    var tj = targets[j];
+    if (base.indexOf(tj) !== -1 || tj.indexOf(base) !== -1) {
+      var sc = 50 - Math.min(20, Math.floor(Math.abs(base.length - tj.length) / 2));
+      if (sc > best) {
+        best = sc;
+        bestIdx = j;
+      }
+    }
+  }
+  return { score: best, idx: bestIdx };
+}
 function searchSite(searchTitle) {
-  var ns = norm(searchTitle);
-  if (!ns)
-    return Promise.resolve(null);
   var url = HOST + "/animes?buscar=" + encodeURIComponent(searchTitle);
   return fetchText(url, { headers: HEADERS }, 15e3).then(function(html) {
     var bloques = [];
@@ -1245,35 +1342,39 @@ function searchSite(searchTitle) {
     var m;
     while ((m = re.exec(html)) !== null)
       bloques.push(m[1]);
-    var best = null;
-    var bestScore = 0;
+    var out = [];
     for (var i = 0; i < bloques.length; i++) {
       var block = bloques[i];
       var title = (block.match(/title="([^"]*)"/) || [])[1] || "";
       var href = (block.match(/href="([^"]*)"/) || [])[1] || "";
       if (!title || !href)
         continue;
-      var cleanTitle = title.replace("Ver Anime", "").replace("Online Gratis", "").replace(/&quot;|&amp;|&#039;/g, "").replace(/^\s+|\s+$/g, "");
-      var nct = norm(cleanTitle);
-      if (!nct)
-        continue;
-      var score = 0;
-      if (nct === ns)
-        score = 100;
-      else if (nct.indexOf(ns) !== -1 || ns.indexOf(nct) !== -1) {
-        score = 50 - Math.min(20, Math.floor(Math.abs(nct.length - ns.length) / 2));
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        best = href.indexOf("http") === 0 ? href : href.replace("./", HOST + "/");
-      }
+      var slugM = href.match(/\/anime\/([^"\/\?]+)/i);
+      out.push({
+        title: title.replace(/&quot;|&amp;|&#039;/g, ""),
+        href: href.indexOf("http") === 0 ? href : href.replace("./", HOST + "/"),
+        slug: slugM ? slugM[1] : ""
+      });
     }
-    return best ? { url: best, score: bestScore } : null;
+    return out;
+  }).catch(function() {
+    return [];
+  });
+}
+function tieneReproductores(html) {
+  if (!html || html.length <= 500)
+    return false;
+  return html.indexOf("data-encrypt") !== -1 || html.indexOf('target="_blank"') !== -1;
+}
+function episodioDirecto(slug, episode) {
+  var url = HOST + "/ver/" + slug + "-episodio-" + (parseInt(episode, 10) || 1);
+  return fetchText(url, { headers: HEADERS }, 15e3).then(function(html) {
+    return tieneReproductores(html) ? url : null;
   }).catch(function() {
     return null;
   });
 }
-function getEpisodeUrl(seriesUrl, episode) {
+function episodioPorPaginacion(seriesUrl, episode) {
   return fetchText(seriesUrl, { headers: HEADERS }, 15e3).then(function(html) {
     var dataI = (html.match(/data-i="([^"]+)"/) || [])[1];
     var dataU = (html.match(/data-u="([^"]+)"/) || [])[1];
@@ -1321,25 +1422,39 @@ function getEpisodeUrl(seriesUrl, episode) {
     return null;
   });
 }
+function getEpisodeUrl(cand, episode) {
+  return episodioDirecto(cand.slug, episode).then(function(directo) {
+    if (directo)
+      return directo;
+    return episodioPorPaginacion(cand.href, episode);
+  });
+}
 function getEmbedUrls(episodeUrl) {
   return fetchText(episodeUrl, { headers: HEADERS }, 15e3).then(function(html) {
-    var embeds = [];
+    var directos = [];
+    var opt = [];
     var vistos = {};
-    function push(u) {
+    function pushDirecto(u) {
       if (!u || vistos[u])
         return;
       vistos[u] = true;
-      embeds.push(u);
+      directos.push(u);
+    }
+    function pushOpt(u) {
+      if (!u || vistos[u])
+        return;
+      vistos[u] = true;
+      opt.push(u);
     }
     var re = /target="_blank"\s+href="(https?:\/\/[^"]+)"/gi;
     var m;
     while ((m = re.exec(html)) !== null) {
       if (!/rpmplayer\./.test(m[1]))
-        push(m[1]);
+        pushDirecto(m[1]);
     }
     var encrypt = (html.match(/data-encrypt="([^"]+)"/) || [])[1];
     if (!encrypt)
-      return embeds;
+      return directos;
     return fetchText(HOST + "/ajax_pagination", {
       method: "POST",
       headers: {
@@ -1357,11 +1472,11 @@ function getEmbedUrls(episodeUrl) {
       while ((m2 = re2.exec(ajaxHtml)) !== null) {
         var url = base64ToText(m2[1]);
         if (url.indexOf("http") === 0 && !/rpmplayer\./.test(url))
-          push(url);
+          pushOpt(url);
       }
-      return embeds;
+      return opt.length ? opt : directos;
     }).catch(function() {
-      return embeds;
+      return opt.length ? opt : directos;
     });
   }).catch(function() {
     return [];
@@ -1410,106 +1525,160 @@ function resolverEmbed(embedUrl) {
     return null;
   });
 }
+function hostDe(url) {
+  var m = String(url || "").match(/^https?:\/\/([^\/]+)/i);
+  return m ? m[1] : "";
+}
+function claveStream(url) {
+  var m = String(url || "").match(/^https?:\/\/([^\/]+)(\/[^?#]*)/i);
+  return m ? m[1] + m[2] : String(url || "");
+}
+function grupoPrioridad(url) {
+  if (/uqload|mp4upload/i.test(url))
+    return 0;
+  if (/voe\.sx|cloudwindow/i.test(url))
+    return 1;
+  return 2;
+}
 function extraer(tmdbId, mediaType, season, episode, title) {
   return __async(this, null, function* () {
     var tipo = mediaType === "movie" ? "movie" : "tv";
     if (!tmdbId && !title)
       return [];
-    var candidatosMain = [];
-    if (title)
-      candidatosMain.push(title);
     var info = yield getTmdbInfo(tmdbId, tipo);
+    var titles = [];
+    if (title)
+      titles.push(title);
     if (info) {
-      if (info.title && candidatosMain.indexOf(info.title) < 0)
-        candidatosMain.push(info.title);
-      if (info.originalTitle && candidatosMain.indexOf(info.originalTitle) < 0)
-        candidatosMain.push(info.originalTitle);
-    }
-    var altTitles = yield getTmdbAltTitles(tmdbId, tipo);
-    var candidatosAlt = [];
-    for (var ai = 0; ai < altTitles.length && candidatosAlt.length < 9; ai++) {
-      if (candidatosMain.indexOf(altTitles[ai]) < 0 && candidatosAlt.indexOf(altTitles[ai]) < 0)
-        candidatosAlt.push(altTitles[ai]);
-    }
-    var candidatos = candidatosMain.concat(candidatosAlt);
-    if (!candidatos.length)
-      return [];
-    var seriesUrl = null;
-    var bestScore = -1;
-    for (var ci = 0; ci < candidatos.length; ci++) {
-      if (ci >= candidatosMain.length && bestScore > 0)
-        break;
-      var hit = yield searchSite(candidatos[ci]);
-      if (hit && hit.score > bestScore) {
-        bestScore = hit.score;
-        seriesUrl = hit.url;
+      for (var ti = 0; ti < info.titles.length; ti++) {
+        if (titles.indexOf(info.titles[ti]) < 0)
+          titles.push(info.titles[ti]);
       }
-      if (bestScore >= 100)
+    }
+    if (!titles.length)
+      return [];
+    console.log("[Monoschinos] Titulos TMDB: " + titles.join(" | "));
+    var targets = objetivos(titles, season);
+    var queries = titles.slice(0, MAX_QUERIES);
+    var candidatos = [];
+    var vistosSlug = {};
+    for (var qi = 0; qi < queries.length; qi++) {
+      var results = yield searchSite(queries[qi]);
+      console.log('[Monoschinos] Busqueda "' + queries[qi] + '": ' + results.length + " fichas");
+      for (var ri = 0; ri < results.length; ri++) {
+        var res = results[ri];
+        if (!res.slug || vistosSlug[res.slug])
+          continue;
+        vistosSlug[res.slug] = true;
+        var p = puntuarFicha(res.title, res.slug, targets, season);
+        if (p.score < 30)
+          continue;
+        candidatos.push({ slug: res.slug, href: res.href, title: res.title, score: p.score, idx: p.idx });
+      }
+      var hayExacto = false;
+      for (var ci = 0; ci < candidatos.length; ci++)
+        if (candidatos[ci].score >= 100)
+          hayExacto = true;
+      if (hayExacto)
         break;
     }
-    if (!seriesUrl)
+    candidatos.sort(function(a, b) {
+      if (b.score !== a.score)
+        return b.score - a.score;
+      if (a.idx !== b.idx)
+        return a.idx - b.idx;
+      return a.slug.length - b.slug.length;
+    });
+    if (!candidatos.length) {
+      console.log("[Monoschinos] Sin coincidencia en el sitio");
       return [];
-    var pageUrl = seriesUrl;
-    if (tipo === "tv" && episode) {
-      var epUrl = yield getEpisodeUrl(seriesUrl, episode);
-      if (!epUrl)
-        return [];
-      pageUrl = epUrl;
-    } else if (tipo === "tv") {
-      return [];
-    } else if (tipo === "movie") {
-      var epUrlM = yield getEpisodeUrl(seriesUrl, 1);
-      if (epUrlM)
-        pageUrl = epUrlM;
     }
-    if (/castellano/i.test(pageUrl))
+    var epNum = tipo === "movie" ? 1 : parseInt(episode, 10) || 1;
+    if (tipo === "tv" && !episode)
       return [];
-    var embeds = yield getEmbedUrls(pageUrl);
-    if (!embeds.length)
-      return [];
-    embeds = embeds.filter(function(u) {
-      return !/byse|mixdrop/i.test(u);
-    });
-    embeds.sort(function(a, b) {
-      var pa = /uqload|mp4upload/i.test(a) ? 0 : 1;
-      var pb = /uqload|mp4upload/i.test(b) ? 0 : 1;
-      return pa - pb;
-    });
-    if (embeds.length > MAX_EMBEDS)
-      embeds = embeds.slice(0, MAX_EMBEDS);
-    var etiqueta = etiquetaDeTitulo(pageUrl);
-    if (!etiqueta)
-      return [];
-    var resueltos = yield Promise.all(embeds.map(function(embedUrl) {
-      var server = (embedUrl.match(/:\/\/(?:www\.)?([^.]+)\./) || [])[1] || "?";
-      return resolverEmbed(embedUrl).then(function(r) {
-        if (!r || !r.url)
-          return null;
-        return {
-          title: server + " \xB7 " + etiqueta,
-          quality: calidadDe(r.quality),
-          language: etiqueta,
-          url: r.url,
-          headers: sanitizePlaybackHeaders(r.url, r.headers || { Referer: embedUrl, "User-Agent": UA2 }),
-          __embed: embedUrl
-        };
+    for (var ai = 0; ai < candidatos.length && ai < MAX_CANDIDATOS; ai++) {
+      var cand = candidatos[ai];
+      console.log('[Monoschinos] Ficha: "' + cand.title + '" (' + cand.score + ") -> " + cand.slug);
+      if (/castellano/i.test(cand.href))
+        continue;
+      var epUrl = yield getEpisodeUrl(cand, epNum);
+      if (!epUrl) {
+        console.log("[Monoschinos] Sin episodio " + epNum + " en " + cand.slug);
+        continue;
+      }
+      console.log("[Monoschinos] Episodio: " + epUrl);
+      var embeds = yield getEmbedUrls(epUrl);
+      console.log("[Monoschinos] Embeds: " + embeds.length);
+      embeds = embeds.filter(function(u) {
+        return !/byse|mixdrop/i.test(u);
       });
-    }));
-    var streams = [];
-    var vistos = {};
-    for (var i = 0; i < resueltos.length; i++) {
-      var s = resueltos[i];
-      if (!s)
+      embeds.sort(function(a, b) {
+        return grupoPrioridad(a) - grupoPrioridad(b);
+      });
+      if (embeds.length > MAX_EMBEDS)
+        embeds = embeds.slice(0, MAX_EMBEDS);
+      if (!embeds.length)
         continue;
-      if (vistos[s.url])
+      var etiqueta = etiquetaDeTitulo(epUrl);
+      if (!etiqueta)
         continue;
-      vistos[s.url] = true;
-      delete s.__embed;
-      streams.push(s);
-      if (streams.length >= MAX_STREAMS)
-        break;
+      var streams = [];
+      var vistosUrl = {};
+      var wi = 0;
+      while (wi < embeds.length && streams.length < 2) {
+        var wave = [];
+        if (wi === 0) {
+          while (wi < embeds.length && grupoPrioridad(embeds[wi]) === 0) {
+            wave.push(embeds[wi]);
+            wi++;
+          }
+          if (!wave.length) {
+            wave.push(embeds[wi]);
+            wi++;
+          }
+        } else {
+          while (wi < embeds.length && wave.length < 3) {
+            wave.push(embeds[wi]);
+            wi++;
+          }
+        }
+        console.log("[Monoschinos] Oleada: " + wave.map(function(w) {
+          return hostDe(w);
+        }).join(","));
+        var resueltos = yield Promise.all(wave.map(function(embedUrl) {
+          var server = (embedUrl.match(/:\/\/(?:www\.)?([^.]+)\./) || [])[1] || "?";
+          return resolverEmbed(embedUrl).then(function(r) {
+            if (!r || !r.url)
+              return null;
+            return {
+              title: server + " \xB7 " + etiqueta,
+              quality: calidadDe(r.quality),
+              language: etiqueta,
+              url: r.url,
+              headers: sanitizePlaybackHeaders(r.url, r.headers || { Referer: embedUrl, "User-Agent": UA2 })
+            };
+          });
+        }));
+        for (var i = 0; i < resueltos.length; i++) {
+          var st = resueltos[i];
+          if (!st)
+            continue;
+          var clave = claveStream(st.url);
+          if (vistosUrl[clave])
+            continue;
+          vistosUrl[clave] = true;
+          streams.push(st);
+          if (streams.length >= MAX_STREAMS)
+            break;
+        }
+        console.log("[Monoschinos] Oleada lista, resueltos: " + streams.length);
+      }
+      var finales = filtrarIdioma(streams);
+      if (finales.length)
+        return finales;
+      console.log("[Monoschinos] Ficha sin streams, se prueba la siguiente candidata");
     }
-    return filtrarIdioma(streams);
+    return [];
   });
 }
 
