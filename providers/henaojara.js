@@ -1,6 +1,6 @@
 /**
  * henaojara - Built from src/henaojara/
- * Generated: 2026-10-27T18:27:15.151Z
+ * Generated: 2026-11-05T00:41:47.596Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -1561,54 +1561,83 @@ function extraer(tmdbId, mediaType, season, episode) {
       var m = String(url || "").match(/^https?:\/\/([^\/]+)(\/[^?#]*)/i);
       return m ? m[1] + m[2] : String(url || "");
     }
+    var porGrupo = [[], [], []];
+    for (var ti = 0; ti < tareas.length; ti++) {
+      porGrupo[grupoPrioridad(tareas[ti].url)].push(tareas[ti]);
+    }
+    var ordenadas = [];
+    var queda = true;
+    while (queda) {
+      queda = false;
+      for (var g = 0; g < porGrupo.length; g++) {
+        if (porGrupo[g].length) {
+          ordenadas.push(porGrupo[g].shift());
+          queda = true;
+        }
+      }
+    }
+    var T0 = typeof Date.now === "function" ? Date.now() : 0;
+    function elapsed() {
+      return T0 ? Date.now() - T0 : 0;
+    }
     var streams = [];
     var vistosUrl = {};
+    function agregar(t, r) {
+      if (!r || !r.url)
+        return;
+      var st = {
+        title: t.server + " \xB7 " + etiqueta,
+        quality: calidadDe(r.quality),
+        language: etiqueta,
+        url: r.url,
+        headers: sanitizePlaybackHeaders(r.url, r.headers || { "User-Agent": UA2, Referer: BASE_URL + "/" })
+      };
+      var clave = claveStream(st.url);
+      if (vistosUrl[clave])
+        return;
+      vistosUrl[clave] = true;
+      if (streams.length < MAX_STREAMS)
+        streams.push(st);
+    }
     var wi = 0;
-    while (wi < tareas.length && streams.length < 2) {
+    while (wi < ordenadas.length && streams.length < 2) {
+      if (streams.length > 0 && elapsed() > 3e4)
+        break;
       var wave = [];
-      if (wi === 0) {
-        while (wi < tareas.length && /uqload|mp4upload/i.test(tareas[wi].url)) {
-          wave.push(tareas[wi]);
-          wi++;
-        }
-        if (!wave.length) {
-          wave.push(tareas[wi]);
-          wi++;
-        }
-      } else {
-        while (wi < tareas.length && wave.length < 3) {
-          wave.push(tareas[wi]);
-          wi++;
-        }
+      while (wi < ordenadas.length && wave.length < 3) {
+        wave.push(ordenadas[wi]);
+        wi++;
       }
       console.log("[Henaojara] Oleada: " + wave.map(function(w) {
         return hostDe(w.url);
       }).join(","));
-      var resueltos = yield Promise.all(wave.map(function(t) {
-        return resolverEmbed(t.url).then(function(r) {
-          if (!r || !r.url)
-            return null;
-          return {
-            title: t.server + " \xB7 " + etiqueta,
-            quality: calidadDe(r.quality),
-            language: etiqueta,
-            url: r.url,
-            headers: sanitizePlaybackHeaders(r.url, r.headers || { "User-Agent": UA2, Referer: BASE_URL + "/" })
-          };
-        });
-      }));
-      for (var i = 0; i < resueltos.length; i++) {
-        var st = resueltos[i];
-        if (!st)
-          continue;
-        var clave = claveStream(st.url);
-        if (vistosUrl[clave])
-          continue;
-        vistosUrl[clave] = true;
-        streams.push(st);
-        if (streams.length >= MAX_STREAMS)
-          break;
+      var salirOleada = null;
+      var promSalir = new Promise(function(res2) {
+        salirOleada = res2;
+      });
+      var carreras = [];
+      for (var k = 0; k < wave.length; k++) {
+        (function(t) {
+          carreras.push(resolverEmbed(t.url).then(function(r) {
+            agregar(t, r);
+            if (streams.length >= 2 && salirOleada) {
+              var f = salirOleada;
+              salirOleada = null;
+              f();
+            }
+          }).catch(function() {
+          }));
+        })(wave[k]);
       }
+      var espera = [Promise.all(carreras), promSalir];
+      if (typeof setTimeout !== "undefined") {
+        espera.push(new Promise(function(res2) {
+          setTimeout(function() {
+            res2();
+          }, 12e3);
+        }));
+      }
+      yield Promise.race(espera);
       console.log("[Henaojara] Oleada lista, resueltos: " + streams.length);
     }
     console.log("[Henaojara] Resueltos: " + streams.length);
@@ -1772,7 +1801,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
     extraer(tmdbId, tipo === "movie" ? "movie" : "tv", season, episode).catch(function() {
       return [];
     }),
-    4e4
+    55e3
   ).then(function(streams) {
     if (!streams || !streams.length)
       return [];

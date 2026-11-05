@@ -1,6 +1,6 @@
 /**
  * monoschinos - Built from src/monoschinos/
- * Generated: 2026-10-27T18:27:14.711Z
+ * Generated: 2026-11-05T00:30:56.383Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -1110,7 +1110,6 @@ var HEADERS = {
   "Referer": HOST + "/"
 };
 var MAX_EMBEDS = 8;
-var MAX_STREAMS = 8;
 var MAX_CANDIDATOS = 3;
 var MAX_QUERIES = 15;
 function calidadDe(q) {
@@ -1366,14 +1365,6 @@ function tieneReproductores(html) {
     return false;
   return html.indexOf("data-encrypt") !== -1 || html.indexOf('target="_blank"') !== -1;
 }
-function episodioDirecto(slug, episode) {
-  var url = HOST + "/ver/" + slug + "-episodio-" + (parseInt(episode, 10) || 1);
-  return fetchText(url, { headers: HEADERS }, 15e3).then(function(html) {
-    return tieneReproductores(html) ? url : null;
-  }).catch(function() {
-    return null;
-  });
-}
 function episodioPorPaginacion(seriesUrl, episode) {
   return fetchText(seriesUrl, { headers: HEADERS }, 15e3).then(function(html) {
     var dataI = (html.match(/data-i="([^"]+)"/) || [])[1];
@@ -1422,64 +1413,85 @@ function episodioPorPaginacion(seriesUrl, episode) {
     return null;
   });
 }
-function getEpisodeUrl(cand, episode) {
-  return episodioDirecto(cand.slug, episode).then(function(directo) {
-    if (directo)
-      return directo;
-    return episodioPorPaginacion(cand.href, episode);
+function extraerEmbedsDeHtml(html, episodeUrl) {
+  var directos = [];
+  var opt = [];
+  var vistos = {};
+  function pushDirecto(u) {
+    if (!u || vistos[u])
+      return;
+    vistos[u] = true;
+    directos.push(u);
+  }
+  function pushOpt(u) {
+    if (!u || vistos[u])
+      return;
+    vistos[u] = true;
+    opt.push(u);
+  }
+  var re = /target="_blank"\s+href="(https?:\/\/[^"]+)"/gi;
+  var m;
+  while ((m = re.exec(html)) !== null) {
+    if (!/rpmplayer\./.test(m[1]))
+      pushDirecto(m[1]);
+  }
+  var encrypt = (html.match(/data-encrypt="([^"]+)"/) || [])[1];
+  if (!encrypt)
+    return Promise.resolve(directos);
+  return fetchText(HOST + "/ajax_pagination", {
+    method: "POST",
+    headers: {
+      "User-Agent": UA2,
+      "Accept": "text/html,*/*",
+      "Accept-Language": "es-MX,es;q=0.9",
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "XMLHttpRequest",
+      "Referer": episodeUrl
+    },
+    body: "acc=opt&i=" + encodeURIComponent(encrypt)
+  }, 15e3).then(function(ajaxHtml) {
+    var re2 = /data-player="([^"]+)"/gi;
+    var m2;
+    while ((m2 = re2.exec(ajaxHtml)) !== null) {
+      var url = base64ToText(m2[1]);
+      if (url.indexOf("http") === 0 && !/rpmplayer\./.test(url))
+        pushOpt(url);
+    }
+    return opt.length ? opt : directos;
+  }).catch(function() {
+    return opt.length ? opt : directos;
   });
 }
-function getEmbedUrls(episodeUrl) {
-  return fetchText(episodeUrl, { headers: HEADERS }, 15e3).then(function(html) {
-    var directos = [];
-    var opt = [];
-    var vistos = {};
-    function pushDirecto(u) {
-      if (!u || vistos[u])
-        return;
-      vistos[u] = true;
-      directos.push(u);
-    }
-    function pushOpt(u) {
-      if (!u || vistos[u])
-        return;
-      vistos[u] = true;
-      opt.push(u);
-    }
-    var re = /target="_blank"\s+href="(https?:\/\/[^"]+)"/gi;
-    var m;
-    while ((m = re.exec(html)) !== null) {
-      if (!/rpmplayer\./.test(m[1]))
-        pushDirecto(m[1]);
-    }
-    var encrypt = (html.match(/data-encrypt="([^"]+)"/) || [])[1];
-    if (!encrypt)
-      return directos;
-    return fetchText(HOST + "/ajax_pagination", {
-      method: "POST",
-      headers: {
-        "User-Agent": UA2,
-        "Accept": "text/html,*/*",
-        "Accept-Language": "es-MX,es;q=0.9",
-        "Content-Type": "application/x-www-form-urlencoded",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": episodeUrl
-      },
-      body: "acc=opt&i=" + encodeURIComponent(encrypt)
-    }, 15e3).then(function(ajaxHtml) {
-      var re2 = /data-player="([^"]+)"/gi;
-      var m2;
-      while ((m2 = re2.exec(ajaxHtml)) !== null) {
-        var url = base64ToText(m2[1]);
-        if (url.indexOf("http") === 0 && !/rpmplayer\./.test(url))
-          pushOpt(url);
-      }
-      return opt.length ? opt : directos;
-    }).catch(function() {
-      return opt.length ? opt : directos;
+function getEpisodeEmbeds(cand, episode) {
+  var url = HOST + "/ver/" + cand.slug + "-episodio-" + (parseInt(episode, 10) || 1);
+  return fetchText(url, { headers: HEADERS }, 15e3).then(function(html) {
+    if (tieneReproductores(html))
+      return extraerEmbedsDeHtml(html, url).then(function(embeds) {
+        return { epUrl: url, embeds };
+      });
+    return episodioPorPaginacion(cand.href, episode).then(function(pagUrl) {
+      if (!pagUrl)
+        return { epUrl: null, embeds: [] };
+      return fetchText(pagUrl, { headers: HEADERS }, 15e3).then(function(pagHtml) {
+        return extraerEmbedsDeHtml(pagHtml, pagUrl).then(function(embeds) {
+          return { epUrl: pagUrl, embeds };
+        });
+      }).catch(function() {
+        return { epUrl: pagUrl, embeds: [] };
+      });
     });
   }).catch(function() {
-    return [];
+    return episodioPorPaginacion(cand.href, episode).then(function(pagUrl) {
+      if (!pagUrl)
+        return { epUrl: null, embeds: [] };
+      return fetchText(pagUrl, { headers: HEADERS }, 15e3).then(function(pagHtml) {
+        return extraerEmbedsDeHtml(pagHtml, pagUrl).then(function(embeds) {
+          return { epUrl: pagUrl, embeds };
+        });
+      }).catch(function() {
+        return { epUrl: pagUrl, embeds: [] };
+      });
+    });
   });
 }
 function sanitizePlaybackHeaders(url, headers) {
@@ -1524,10 +1536,6 @@ function resolverEmbed(embedUrl) {
   }).catch(function() {
     return null;
   });
-}
-function hostDe(url) {
-  var m = String(url || "").match(/^https?:\/\/([^\/]+)/i);
-  return m ? m[1] : "";
 }
 function claveStream(url) {
   var m = String(url || "").match(/^https?:\/\/([^\/]+)(\/[^?#]*)/i);
@@ -1601,13 +1609,14 @@ function extraer(tmdbId, mediaType, season, episode, title) {
       console.log('[Monoschinos] Ficha: "' + cand.title + '" (' + cand.score + ") -> " + cand.slug);
       if (/castellano/i.test(cand.href))
         continue;
-      var epUrl = yield getEpisodeUrl(cand, epNum);
+      var epData = yield getEpisodeEmbeds(cand, epNum);
+      var epUrl = epData.epUrl;
       if (!epUrl) {
         console.log("[Monoschinos] Sin episodio " + epNum + " en " + cand.slug);
         continue;
       }
       console.log("[Monoschinos] Episodio: " + epUrl);
-      var embeds = yield getEmbedUrls(epUrl);
+      var embeds = epData.embeds;
       console.log("[Monoschinos] Embeds: " + embeds.length);
       embeds = embeds.filter(function(u) {
         return !/byse|mixdrop/i.test(u);
@@ -1624,54 +1633,24 @@ function extraer(tmdbId, mediaType, season, episode, title) {
         continue;
       var streams = [];
       var vistosUrl = {};
-      var wi = 0;
-      while (wi < embeds.length && streams.length < 2) {
-        var wave = [];
-        if (wi === 0) {
-          while (wi < embeds.length && grupoPrioridad(embeds[wi]) === 0) {
-            wave.push(embeds[wi]);
-            wi++;
-          }
-          if (!wave.length) {
-            wave.push(embeds[wi]);
-            wi++;
-          }
-        } else {
-          while (wi < embeds.length && wave.length < 3) {
-            wave.push(embeds[wi]);
-            wi++;
-          }
-        }
-        console.log("[Monoschinos] Oleada: " + wave.map(function(w) {
-          return hostDe(w);
-        }).join(","));
-        var resueltos = yield Promise.all(wave.map(function(embedUrl) {
-          var server = (embedUrl.match(/:\/\/(?:www\.)?([^.]+)\./) || [])[1] || "?";
-          return resolverEmbed(embedUrl).then(function(r) {
-            if (!r || !r.url)
-              return null;
-            return {
-              title: server + " \xB7 " + etiqueta,
-              quality: calidadDe(r.quality),
-              language: etiqueta,
-              url: r.url,
-              headers: sanitizePlaybackHeaders(r.url, r.headers || { Referer: embedUrl, "User-Agent": UA2 })
-            };
-          });
-        }));
-        for (var i = 0; i < resueltos.length; i++) {
-          var st = resueltos[i];
-          if (!st)
-            continue;
-          var clave = claveStream(st.url);
-          if (vistosUrl[clave])
-            continue;
-          vistosUrl[clave] = true;
-          streams.push(st);
-          if (streams.length >= MAX_STREAMS)
-            break;
-        }
-        console.log("[Monoschinos] Oleada lista, resueltos: " + streams.length);
+      for (var ei = 0; ei < embeds.length && streams.length < 2; ei++) {
+        var embedUrl = embeds[ei];
+        var server = (embedUrl.match(/:\/\/(?:www\.)?([^.]+)\./) || [])[1] || "?";
+        var r = yield resolverEmbed(embedUrl);
+        if (!r || !r.url)
+          continue;
+        var clave = claveStream(r.url);
+        if (vistosUrl[clave])
+          continue;
+        vistosUrl[clave] = true;
+        streams.push({
+          title: server + " \xB7 " + etiqueta,
+          quality: calidadDe(r.quality),
+          language: etiqueta,
+          url: r.url,
+          headers: sanitizePlaybackHeaders(r.url, r.headers || { Referer: embedUrl, "User-Agent": UA2 })
+        });
+        console.log("[Monoschinos] Resuelto: " + server + " (" + streams.length + "/2)");
       }
       var finales = filtrarIdioma(streams);
       if (finales.length)
@@ -1679,143 +1658,6 @@ function extraer(tmdbId, mediaType, season, episode, title) {
       console.log("[Monoschinos] Ficha sin streams, se prueba la siguiente candidata");
     }
     return [];
-  });
-}
-
-// src/shared/validate.js
-var VALIDATE_TIMEOUT_MS = 7e3;
-var VALIDATE_CONCURRENCY = 4;
-function qualityRank(q) {
-  if (!q)
-    return 0;
-  var s = String(q).toLowerCase();
-  if (s.indexOf("4k") !== -1 || s.indexOf("2160") !== -1)
-    return 2160;
-  var m = s.match(/(\d{3,4})\s*p/);
-  if (m)
-    return parseInt(m[1], 10);
-  return 0;
-}
-function isM3u8(url) {
-  return /\.m3u8(\?|#|$)/i.test(url || "");
-}
-function checkUrl(url, headers, timeoutMs) {
-  return new Promise(function(resolve) {
-    var done = false;
-    var timer = null;
-    var controller = null;
-    function finish(ok) {
-      if (done)
-        return;
-      done = true;
-      if (timer) {
-        try {
-          clearTimeout(timer);
-        } catch (e) {
-        }
-        timer = null;
-      }
-      if (controller) {
-        try {
-          controller.abort();
-        } catch (e) {
-        }
-      }
-      resolve(!!ok);
-    }
-    if (!url || typeof url !== "string" || url.indexOf("http") !== 0) {
-      resolve(false);
-      return;
-    }
-    if (typeof setTimeout !== "undefined") {
-      timer = setTimeout(function() {
-        timer = null;
-        finish(false);
-      }, timeoutMs || VALIDATE_TIMEOUT_MS);
-    }
-    var reqHeaders = {
-      "Range": "bytes=0-2047",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    };
-    if (headers) {
-      for (var k in headers) {
-        if (Object.prototype.hasOwnProperty.call(headers, k) && headers[k]) {
-          reqHeaders[k] = headers[k];
-        }
-      }
-    }
-    var reqInit = { headers: reqHeaders, redirect: "follow" };
-    try {
-      if (typeof AbortController !== "undefined") {
-        controller = new AbortController();
-        reqInit.signal = controller.signal;
-      }
-    } catch (e) {
-      controller = null;
-    }
-    fetch(url, reqInit).then(function(res) {
-      var status = res.status;
-      if (status === 200 || status === 206 || status === 416) {
-        if (isM3u8(url)) {
-          res.text().then(function(t) {
-            finish(t && t.indexOf("#EXTM3U") !== -1);
-          }).catch(function() {
-            finish(true);
-          });
-        } else {
-          finish(true);
-        }
-      } else {
-        finish(false);
-      }
-    }).catch(function() {
-      finish(false);
-    });
-  });
-}
-function filterWorkingStreams(streams, opts) {
-  opts = opts || {};
-  var timeout = opts.timeoutMs || VALIDATE_TIMEOUT_MS;
-  var concurrency = opts.concurrency || VALIDATE_CONCURRENCY;
-  var seen = {};
-  var uniq = [];
-  (streams || []).forEach(function(s) {
-    if (!s || !s.url || seen[s.url])
-      return;
-    seen[s.url] = 1;
-    uniq.push(s);
-  });
-  if (uniq.length === 0)
-    return Promise.resolve([]);
-  var results = new Array(uniq.length);
-  var cursor = 0;
-  function worker() {
-    if (cursor >= uniq.length)
-      return Promise.resolve();
-    var i = cursor++;
-    var st = uniq[i];
-    return checkUrl(st.url, st.headers, timeout).then(function(ok) {
-      results[i] = ok ? st : null;
-    }).catch(function() {
-      results[i] = null;
-    }).then(worker);
-  }
-  var workers = [];
-  var n = Math.min(concurrency, uniq.length);
-  for (var w = 0; w < n; w++)
-    workers.push(worker());
-  return Promise.all(workers).then(function() {
-    var alive = [];
-    for (var i = 0; i < results.length; i++) {
-      if (results[i])
-        alive.push(results[i]);
-    }
-    alive.sort(function(a, b) {
-      return qualityRank(b.quality) - qualityRank(a.quality);
-    });
-    return alive;
-  }).catch(function() {
-    return uniq;
   });
 }
 
@@ -1832,34 +1674,12 @@ function withTimeout(promise, ms) {
     })
   ]);
 }
-function validateFirst2(streams) {
-  var list = streams || [];
-  if (list.length === 0)
-    return Promise.resolve([]);
-  var first = list.slice(0, 2);
-  var rest = list.slice(2);
-  return filterWorkingStreams(first).then(function(valid) {
-    var seen = {};
-    var out = [];
-    for (var i = 0; i < valid.length; i++) {
-      seen[valid[i].url] = 1;
-      out.push(valid[i]);
-    }
-    for (var j = 0; j < rest.length; j++) {
-      if (!seen[rest[j].url]) {
-        seen[rest[j].url] = 1;
-        out.push(rest[j]);
-      }
-    }
-    return out;
-  });
-}
 function getStreams(tmdbId, mediaType, season, episode) {
   var tipo = String(mediaType || "tv").toLowerCase();
   return withTimeout(
     extraer(tmdbId, tipo === "movie" ? "movie" : "tv", season, episode).catch(function() {
       return [];
-    }).then(validateFirst2),
+    }),
     4e4
   );
 }

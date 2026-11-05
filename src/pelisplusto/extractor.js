@@ -244,23 +244,51 @@ function getMovieStreams(slug) {
 }
 
 function getEpisodeStreams(slug, season, episode) {
+  // El sitio ya no sirve episodios en /serie/<slug>/temporada/<t>/capitulo/<e>
+  // (esa URL redirige a la ficha con hash #s<t>-e<e>, una cáscara sin
+  // servidores: de ahí el 0 en series). Los episodios se cargan por hash
+  // desde un endpoint JSON interno: <data-endpoint>/<temporada>/<episodio>,
+  // que devuelve { success, data: { servers: [{ name, url }], html } }.
+  // El endpoint se lee de la ficha (#episode-area data-endpoint); si falta,
+  // se usa la forma canónica /serie/<slug>/episodio.
   var basePath = slug.indexOf('anime/') === 0
     ? MAIN_URL + '/' + slug
     : MAIN_URL + '/serie/' + slug;
   return fetchText(basePath)
     .then(function(html) {
-      // El grupo ([^"]*) no puede cruzar la comilla de cierre: el lookahead
-      // (?=[/"?]) evita que capitulo/1 case con capitulo/12 sin tragarse
-      // la comilla (el (?:\/|"|\?) anterior se comía la comilla y seguía
-      // hasta la siguiente, dejando una URL con basura como '.../1"\n class=').
-      var epRegex = new RegExp('<a\\b[^>]*href="([^"]*\\/temporada\\/' + season + '\\/capitulo\\/' + episode + '(?=[\\/"?])[^"]*)"[^>]*>', 'i');
-      var m = epRegex.exec(html);
-      var epUrl = m ? m[1] : (basePath + '/temporada/' + season + '/capitulo/' + episode);
-      if (epUrl.indexOf('http') !== 0) epUrl = MAIN_URL + (epUrl.charAt(0) === '/' ? '' : '/') + epUrl;
-      return fetchText(epUrl);
+      var m = html.match(/data-endpoint="([^"]+)"/);
+      var endpoint = m ? m[1] : (basePath + '/episodio');
+      return fetchJson(endpoint + '/' + season + '/' + episode, {
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json',
+          'Referer': basePath
+        }
+      });
     })
-    .then(function(html) {
-      return resolveServers(getServersFromDetail(html));
+    .then(function(payload) {
+      var data = (payload && payload.data) || {};
+      var lista = data.servers || [];
+      var servers = [];
+      for (var i = 0; i < lista.length; i++) {
+        var s = lista[i];
+        if (s && s.url && s.url.indexOf('http') === 0) {
+          servers.push({ src: s.url, label: s.name || 'Server' });
+        }
+      }
+      if (!servers.length && data.html) {
+        // Respaldo: enlaces data-src del panel HTML del episodio.
+        var re = /<a\b[^>]*data-src="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+        var rm;
+        while ((rm = re.exec(data.html)) !== null) {
+          var src = rm[1];
+          if (src.indexOf('//') === 0) src = 'https:' + src;
+          if (src.indexOf('http') !== 0) continue;
+          servers.push({ src: src, label: rm[2].replace(/<[^>]*>/g, '').trim() || 'Server' });
+        }
+      }
+      if (!servers.length) return [];
+      return resolveServers(servers);
     })
     .catch(function() { return []; });
 }

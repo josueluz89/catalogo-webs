@@ -23,8 +23,13 @@
 //    en 0 si existe la ficha buena).
 //  - El episodio se toma directo de /ver/<slug>-episodio-<N> (verificado
 //    2026-10-27 para DBS y AoT); la paginación ajax queda solo de respaldo.
-//  - Resolución por oleadas con parada temprana (uqload/mp4upload, luego
-//    voe, luego resto) y tope de 2 streams.
+//    La pagina del episodio se baja UNA vez y de ese mismo HTML salen los
+//    embeds (antes se bajaba dos veces: comprobar + extraer).
+//  - Resolución EN SECUENCIA por prioridad (uqload/mp4upload, luego voe,
+//    luego resto) con parada en 2 streams: en este motor el fetch es
+//    curl sincrono y las oleadas con Promise.all sumaban el coste de los
+//    embeds muertos (2026-11-04: oleada 1ª 21 s, 2ª 15 s). En secuencia,
+//    en cuanto hay 2 streams no se baja ningun embed mas.
 //
 // Cadena verificada 2026-10-27:
 //   buscar   : GET /animes?buscar=<titulo>          (tarjetas <li class="...ficha_efecto">)
@@ -48,7 +53,6 @@ const HEADERS = {
 };
 
 const MAX_EMBEDS = 8;
-const MAX_STREAMS = 8;
 const MAX_CANDIDATOS = 3;
 const MAX_QUERIES = 15;
 
@@ -311,15 +315,6 @@ function tieneReproductores(html) {
   return html.indexOf('data-encrypt') !== -1 || html.indexOf('target="_blank"') !== -1;
 }
 
-function episodioDirecto(slug, episode) {
-  var url = HOST + '/ver/' + slug + '-episodio-' + (parseInt(episode, 10) || 1);
-  return fetchText(url, { headers: HEADERS }, 15000)
-    .then(function (html) {
-      return tieneReproductores(html) ? url : null;
-    })
-    .catch(function () { return null; });
-}
-
 function episodioPorPaginacion(seriesUrl, episode) {
   return fetchText(seriesUrl, { headers: HEADERS }, 15000)
     .then(function (html) {
@@ -363,63 +358,89 @@ function episodioPorPaginacion(seriesUrl, episode) {
     .catch(function () { return null; });
 }
 
-function getEpisodeUrl(cand, episode) {
-  return episodioDirecto(cand.slug, episode).then(function (directo) {
-    if (directo) return directo;
-    return episodioPorPaginacion(cand.href, episode);
-  });
+// Extrae los embeds del HTML de una pagina de episodio ya bajada: los
+// target="_blank" son los mismos archivos que los reproductores opt con
+// otra ruta (/d/<id> frente a /e/<id>): si hay opt, los directos solo
+// duplican trabajo y tiempo. Solo valen si no hay opt.
+function extraerEmbedsDeHtml(html, episodeUrl) {
+  var directos = [];
+  var opt = [];
+  var vistos = {};
+  function pushDirecto(u) {
+    if (!u || vistos[u]) return;
+    vistos[u] = true;
+    directos.push(u);
+  }
+  function pushOpt(u) {
+    if (!u || vistos[u]) return;
+    vistos[u] = true;
+    opt.push(u);
+  }
+
+  var re = /target="_blank"\s+href="(https?:\/\/[^"]+)"/gi;
+  var m;
+  while ((m = re.exec(html)) !== null) {
+    if (!/rpmplayer\./.test(m[1])) pushDirecto(m[1]);
+  }
+
+  var encrypt = (html.match(/data-encrypt="([^"]+)"/) || [])[1];
+  if (!encrypt) return Promise.resolve(directos);
+  return fetchText(HOST + '/ajax_pagination', {
+    method: 'POST',
+    headers: {
+      'User-Agent': UA,
+      'Accept': 'text/html,*/*',
+      'Accept-Language': 'es-MX,es;q=0.9',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Referer': episodeUrl,
+    },
+    body: 'acc=opt&i=' + encodeURIComponent(encrypt),
+  }, 15000).then(function (ajaxHtml) {
+    var re2 = /data-player="([^"]+)"/gi;
+    var m2;
+    while ((m2 = re2.exec(ajaxHtml)) !== null) {
+      var url = base64ToText(m2[1]);
+      if (url.indexOf('http') === 0 && !/rpmplayer\./.test(url)) pushOpt(url);
+    }
+    return opt.length ? opt : directos;
+  }).catch(function () { return opt.length ? opt : directos; });
 }
 
-function getEmbedUrls(episodeUrl) {
-  return fetchText(episodeUrl, { headers: HEADERS }, 15000)
+// Episodio + embeds en una sola bajada de la pagina: antes la URL directa
+// se bajaba dos veces (una para comprobar que tenia reproductores y otra
+// para extraer los embeds). Si la URL directa no trae reproductores, se
+// resuelve por paginacion ajax y se extraen los embeds de esa pagina.
+function getEpisodeEmbeds(cand, episode) {
+  var url = HOST + '/ver/' + cand.slug + '-episodio-' + (parseInt(episode, 10) || 1);
+  return fetchText(url, { headers: HEADERS }, 15000)
     .then(function (html) {
-      // Los target="_blank" son los mismos archivos que los reproductores
-      // opt con otra ruta (/d/<id> frente a /e/<id>): si hay opt, los
-      // directos solo duplican trabajo y tiempo. Solo valen si no hay opt.
-      var directos = [];
-      var opt = [];
-      var vistos = {};
-      function pushDirecto(u) {
-        if (!u || vistos[u]) return;
-        vistos[u] = true;
-        directos.push(u);
-      }
-      function pushOpt(u) {
-        if (!u || vistos[u]) return;
-        vistos[u] = true;
-        opt.push(u);
-      }
-
-      var re = /target="_blank"\s+href="(https?:\/\/[^"]+)"/gi;
-      var m;
-      while ((m = re.exec(html)) !== null) {
-        if (!/rpmplayer\./.test(m[1])) pushDirecto(m[1]);
-      }
-
-      var encrypt = (html.match(/data-encrypt="([^"]+)"/) || [])[1];
-      if (!encrypt) return directos;
-      return fetchText(HOST + '/ajax_pagination', {
-        method: 'POST',
-        headers: {
-          'User-Agent': UA,
-          'Accept': 'text/html,*/*',
-          'Accept-Language': 'es-MX,es;q=0.9',
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'X-Requested-With': 'XMLHttpRequest',
-          'Referer': episodeUrl,
-        },
-        body: 'acc=opt&i=' + encodeURIComponent(encrypt),
-      }, 15000).then(function (ajaxHtml) {
-        var re2 = /data-player="([^"]+)"/gi;
-        var m2;
-        while ((m2 = re2.exec(ajaxHtml)) !== null) {
-          var url = base64ToText(m2[1]);
-          if (url.indexOf('http') === 0 && !/rpmplayer\./.test(url)) pushOpt(url);
-        }
-        return opt.length ? opt : directos;
-      }).catch(function () { return opt.length ? opt : directos; });
+      if (tieneReproductores(html)) return extraerEmbedsDeHtml(html, url).then(function (embeds) {
+        return { epUrl: url, embeds: embeds };
+      });
+      return episodioPorPaginacion(cand.href, episode).then(function (pagUrl) {
+        if (!pagUrl) return { epUrl: null, embeds: [] };
+        return fetchText(pagUrl, { headers: HEADERS }, 15000)
+          .then(function (pagHtml) {
+            return extraerEmbedsDeHtml(pagHtml, pagUrl).then(function (embeds) {
+              return { epUrl: pagUrl, embeds: embeds };
+            });
+          })
+          .catch(function () { return { epUrl: pagUrl, embeds: [] }; });
+      });
     })
-    .catch(function () { return []; });
+    .catch(function () {
+      return episodioPorPaginacion(cand.href, episode).then(function (pagUrl) {
+        if (!pagUrl) return { epUrl: null, embeds: [] };
+        return fetchText(pagUrl, { headers: HEADERS }, 15000)
+          .then(function (pagHtml) {
+            return extraerEmbedsDeHtml(pagHtml, pagUrl).then(function (embeds) {
+              return { epUrl: pagUrl, embeds: embeds };
+            });
+          })
+          .catch(function () { return { epUrl: pagUrl, embeds: [] }; });
+      });
+    });
 }
 
 //  - vimeos.* / vms.sh : cualquier Referer/Origin da 403; sin cabeceras responde el HLS.
@@ -455,11 +476,6 @@ function resolverEmbed(embedUrl) {
         .catch(function () { return null; });
     })
     .catch(function () { return null; });
-}
-
-function hostDe(url) {
-  var m = String(url || '').match(/^https?:\/\/([^\/]+)/i);
-  return m ? m[1] : '';
 }
 
 // Dos embeds distintos pueden resolver al mismo archivo (los tokens de la
@@ -539,14 +555,15 @@ async function extraer(tmdbId, mediaType, season, episode, title) {
     var cand = candidatos[ai];
     console.log('[Monoschinos] Ficha: "' + cand.title + '" (' + cand.score + ') -> ' + cand.slug);
     if (/castellano/i.test(cand.href)) continue;
-    var epUrl = await getEpisodeUrl(cand, epNum);
+    var epData = await getEpisodeEmbeds(cand, epNum);
+    var epUrl = epData.epUrl;
     if (!epUrl) {
       console.log('[Monoschinos] Sin episodio ' + epNum + ' en ' + cand.slug);
       continue;
     }
     console.log('[Monoschinos] Episodio: ' + epUrl);
 
-    var embeds = await getEmbedUrls(epUrl);
+    var embeds = epData.embeds;
     console.log('[Monoschinos] Embeds: ' + embeds.length);
     // Priorizar los hosts que resuelven (uqload, mp4upload, voe) y descartar
     // de entrada los que acaban en null (byse/filemoon, mixdrop sin resolver).
@@ -558,45 +575,30 @@ async function extraer(tmdbId, mediaType, season, episode, title) {
     var etiqueta = etiquetaDeTitulo(epUrl);
     if (!etiqueta) continue;
 
-    // Resolución por oleadas con parada temprana: primero los hosts que
-    // resuelven rápido y bien; solo si no dan 2 streams se prueban los
-    // lentos. Un Promise.all sobre todos esperaba al resolver más lento
-    // aunque los buenos ya estuvieran listos (el caso DBS: 85 s).
+    // Resolución EN SECUENCIA, por orden de prioridad, con parada en 2
+    // streams. En este motor el fetch es curl sincrono, asi que un
+    // Promise.all suma el coste de todos los embeds de la oleada aunque
+    // los buenos ya esten listos (las oleadas 2026-10-27: 21 s la 1ª y
+    // 15 s la 2ª, esperando a embeds muertos con reintentos). En
+    // secuencia, en cuanto hay 2 streams no se baja ningun embed mas.
     var streams = [];
     var vistosUrl = {};
-    var wi = 0;
-    while (wi < embeds.length && streams.length < 2) {
-      var wave = [];
-      if (wi === 0) {
-        while (wi < embeds.length && grupoPrioridad(embeds[wi]) === 0) { wave.push(embeds[wi]); wi++; }
-        if (!wave.length) { wave.push(embeds[wi]); wi++; }
-      } else {
-        while (wi < embeds.length && wave.length < 3) { wave.push(embeds[wi]); wi++; }
-      }
-      console.log('[Monoschinos] Oleada: ' + wave.map(function (w) { return hostDe(w); }).join(','));
-      var resueltos = await Promise.all(wave.map(function (embedUrl) {
-        var server = (embedUrl.match(/:\/\/(?:www\.)?([^.]+)\./) || [])[1] || '?';
-        return resolverEmbed(embedUrl).then(function (r) {
-          if (!r || !r.url) return null;
-          return {
-            title: server + ' · ' + etiqueta,
-            quality: calidadDe(r.quality),
-            language: etiqueta,
-            url: r.url,
-            headers: sanitizePlaybackHeaders(r.url, r.headers || { Referer: embedUrl, 'User-Agent': UA }),
-          };
-        });
-      }));
-      for (var i = 0; i < resueltos.length; i++) {
-        var st = resueltos[i];
-        if (!st) continue;
-        var clave = claveStream(st.url);
-        if (vistosUrl[clave]) continue;
-        vistosUrl[clave] = true;
-        streams.push(st);
-        if (streams.length >= MAX_STREAMS) break;
-      }
-      console.log('[Monoschinos] Oleada lista, resueltos: ' + streams.length);
+    for (var ei = 0; ei < embeds.length && streams.length < 2; ei++) {
+      var embedUrl = embeds[ei];
+      var server = (embedUrl.match(/:\/\/(?:www\.)?([^.]+)\./) || [])[1] || '?';
+      var r = await resolverEmbed(embedUrl);
+      if (!r || !r.url) continue;
+      var clave = claveStream(r.url);
+      if (vistosUrl[clave]) continue;
+      vistosUrl[clave] = true;
+      streams.push({
+        title: server + ' · ' + etiqueta,
+        quality: calidadDe(r.quality),
+        language: etiqueta,
+        url: r.url,
+        headers: sanitizePlaybackHeaders(r.url, r.headers || { Referer: embedUrl, 'User-Agent': UA }),
+      });
+      console.log('[Monoschinos] Resuelto: ' + server + ' (' + streams.length + '/2)');
     }
 
     var finales = filtrarIdioma(streams);

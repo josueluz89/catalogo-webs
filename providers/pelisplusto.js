@@ -1,6 +1,6 @@
 /**
  * pelisplusto - Built from src/pelisplusto/
- * Generated: 2026-10-22T08:18:09.207Z
+ * Generated: 2026-11-05T00:27:34.622Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -1444,14 +1444,40 @@ function getMovieStreams(slug) {
 function getEpisodeStreams(slug, season, episode) {
   var basePath = slug.indexOf("anime/") === 0 ? MAIN_URL2 + "/" + slug : MAIN_URL2 + "/serie/" + slug;
   return fetchText(basePath).then(function(html) {
-    var epRegex = new RegExp('<a\\b[^>]*href="([^"]*\\/temporada\\/' + season + "\\/capitulo\\/" + episode + '(?=[\\/"?])[^"]*)"[^>]*>', "i");
-    var m = epRegex.exec(html);
-    var epUrl = m ? m[1] : basePath + "/temporada/" + season + "/capitulo/" + episode;
-    if (epUrl.indexOf("http") !== 0)
-      epUrl = MAIN_URL2 + (epUrl.charAt(0) === "/" ? "" : "/") + epUrl;
-    return fetchText(epUrl);
-  }).then(function(html) {
-    return resolveServers(getServersFromDetail(html));
+    var m = html.match(/data-endpoint="([^"]+)"/);
+    var endpoint = m ? m[1] : basePath + "/episodio";
+    return fetchJson(endpoint + "/" + season + "/" + episode, {
+      headers: {
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json",
+        "Referer": basePath
+      }
+    });
+  }).then(function(payload) {
+    var data = payload && payload.data || {};
+    var lista = data.servers || [];
+    var servers = [];
+    for (var i = 0; i < lista.length; i++) {
+      var s = lista[i];
+      if (s && s.url && s.url.indexOf("http") === 0) {
+        servers.push({ src: s.url, label: s.name || "Server" });
+      }
+    }
+    if (!servers.length && data.html) {
+      var re = /<a\b[^>]*data-src="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+      var rm;
+      while ((rm = re.exec(data.html)) !== null) {
+        var src = rm[1];
+        if (src.indexOf("//") === 0)
+          src = "https:" + src;
+        if (src.indexOf("http") !== 0)
+          continue;
+        servers.push({ src, label: rm[2].replace(/<[^>]*>/g, "").trim() || "Server" });
+      }
+    }
+    if (!servers.length)
+      return [];
+    return resolveServers(servers);
   }).catch(function() {
     return [];
   });

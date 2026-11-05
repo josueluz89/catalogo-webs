@@ -10,7 +10,11 @@ import { filterWorkingStreams } from '../shared/validate.js';
 // datacenter en CDN que el reproductor sí abre; si la sonda mata todo lo
 // resuelto, se devuelve lo resuelto sin filtrar en vez de un 0 falso.
 
-// Tope de tiempo del provider (40 s): la app corta a los 60 s.
+// Tope de tiempo del provider (55 s): la app corta a los 60 s. Era 40 s
+// y descartaba streams ya conseguidos cuando el extractor corría lento
+// (observado: voe + mp4upload en mano y 0 devuelto); el extractor ya se
+// autolimita (plazo por oleada + guarda de 30 s con 1 stream), así que
+// este tope es solo red de seguridad y deja aire a la validación.
 function withTimeout(promise, ms) {
   if (typeof setTimeout === 'undefined') return promise;
   return Promise.race([
@@ -40,7 +44,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
     extraer(tmdbId, tipo === 'movie' ? 'movie' : 'tv', season, episode).catch(function () {
       return [];
     }),
-    40000
+    55000
   ).then(function (streams) {
     if (!streams || !streams.length) return [];
     return filterWorkingStreams(streams).then(function (valid) {

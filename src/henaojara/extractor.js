@@ -533,11 +533,23 @@ async function extraer(tmdbId, mediaType, season, episode) {
   }
   if (!tareas.length) return [];
 
-  // Resolución por oleadas con parada temprana: primero los hosts que
-  // resuelven rápido y bien (uqload, mp4upload); solo si no dan al menos
-  // 2 streams se prueban los lentos (filemoon, streamwish, voe...). Un
-  // Promise.all sobre todos esperaba al resolver más lento (hasta 45 s)
-  // aunque los buenos ya estuvieran listos.
+  // Resolución por oleadas con parada temprana, reescrita 2026-11-04.
+  // Por qué: el provider daba streams reales pero rondaba o pasaba los
+  // 60 s en solitario (AoT: 92 s, 56 s y 39 s en tres pasadas, siempre con
+  // el mismo par MP4Upload+Voe al final). Dos causas, medidas con el arnés:
+  // 1) Cada oleada agotaba un grupo entero antes de tocar el siguiente:
+  //    la oleada 1 (uqload+mp4upload+mp4upload) daba solo 1 stream y
+  //    obligaba a una oleada 2 completa (voe+voe+vidhide) para el 2º.
+  //    Ahora cada oleada mezcla un host de cada grupo (rápidos primero),
+  //    así la oleada 1 ya puede cerrar con 2 streams y no se paga la 2ª.
+  // 2) Un resolver atascado (cadena de reintentos del resolver compartido)
+  //    retenía su oleada entera, y el tope de 40 s del index descartaba
+  //    hasta los streams ya conseguidos (observado: voe + mp4upload en
+  //    mano y 0 devuelto). Ahora cada oleada tiene un plazo de 12 s, cada
+  //    tarea deja su stream en cuanto resuelve, la oleada se cierra en
+  //    cuanto hay 2 streams, y con 1 stream y 30 s gastados no se abre
+  //    otra oleada. En la app los plazos corren con timers reales; en el
+  //    arnés se cumplen entre fetches.
   // Dos embeds distintos pueden resolver al mismo archivo (los tokens de
   // la URL cambian pero host+ruta no): se deduplica por host+ruta para no
   // validar dos veces el mismo stream ni entregar duplicados.
@@ -545,39 +557,73 @@ async function extraer(tmdbId, mediaType, season, episode) {
     var m = String(url || '').match(/^https?:\/\/([^\/]+)(\/[^?#]*)/i);
     return m ? m[1] + m[2] : String(url || '');
   }
+  // Mezcla round-robin por grupo (0 = uqload/mp4upload, 1 = voe, 2 = resto):
+  // un host de cada grupo por vuelta, conservando el orden dentro de cada
+  // grupo. Así la primera oleada ya combina rápidos con voe.
+  var porGrupo = [[], [], []];
+  for (var ti = 0; ti < tareas.length; ti++) {
+    porGrupo[grupoPrioridad(tareas[ti].url)].push(tareas[ti]);
+  }
+  var ordenadas = [];
+  var queda = true;
+  while (queda) {
+    queda = false;
+    for (var g = 0; g < porGrupo.length; g++) {
+      if (porGrupo[g].length) { ordenadas.push(porGrupo[g].shift()); queda = true; }
+    }
+  }
+  // Reloj del extractor (si el motor no trae Date.now, el guarda no se
+  // activa y el bucle se comporta como antes).
+  var T0 = (typeof Date.now === 'function') ? Date.now() : 0;
+  function elapsed() { return T0 ? Date.now() - T0 : 0; }
   var streams = [];
   var vistosUrl = {};
+  // Cada tarea deja su stream en `streams` en cuanto resuelve (no al
+  // final de la oleada): así un plazo vencido no tira lo ya conseguido.
+  function agregar(t, r) {
+    if (!r || !r.url) return;
+    var st = {
+      title: t.server + ' · ' + etiqueta,
+      quality: calidadDe(r.quality),
+      language: etiqueta,
+      url: r.url,
+      headers: sanitizePlaybackHeaders(r.url, r.headers || { 'User-Agent': UA, Referer: BASE_URL + '/' }),
+    };
+    var clave = claveStream(st.url);
+    if (vistosUrl[clave]) return;
+    vistosUrl[clave] = true;
+    if (streams.length < MAX_STREAMS) streams.push(st);
+  }
   var wi = 0;
-  while (wi < tareas.length && streams.length < 2) {
+  while (wi < ordenadas.length && streams.length < 2) {
+    // Con 1 stream en mano y 30 s ya gastados, no se abre otra oleada: la
+    // siguiente podría empujar el total pasado el tope y perder ese stream.
+    if (streams.length > 0 && elapsed() > 30000) break;
     var wave = [];
-    if (wi === 0) {
-      while (wi < tareas.length && /uqload|mp4upload/i.test(tareas[wi].url)) { wave.push(tareas[wi]); wi++; }
-      if (!wave.length) { wave.push(tareas[wi]); wi++; }
-    } else {
-      while (wi < tareas.length && wave.length < 3) { wave.push(tareas[wi]); wi++; }
-    }
+    while (wi < ordenadas.length && wave.length < 3) { wave.push(ordenadas[wi]); wi++; }
     console.log('[Henaojara] Oleada: ' + wave.map(function (w) { return hostDe(w.url); }).join(','));
-    var resueltos = await Promise.all(wave.map(function (t) {
-      return resolverEmbed(t.url).then(function (r) {
-        if (!r || !r.url) return null;
-        return {
-          title: t.server + ' · ' + etiqueta,
-          quality: calidadDe(r.quality),
-          language: etiqueta,
-          url: r.url,
-          headers: sanitizePlaybackHeaders(r.url, r.headers || { 'User-Agent': UA, Referer: BASE_URL + '/' }),
-        };
-      });
-    }));
-    for (var i = 0; i < resueltos.length; i++) {
-      var st = resueltos[i];
-      if (!st) continue;
-      var clave = claveStream(st.url);
-      if (vistosUrl[clave]) continue;
-      vistosUrl[clave] = true;
-      streams.push(st);
-      if (streams.length >= MAX_STREAMS) break;
+    // La oleada termina cuando todas sus tareas liquidan, cuando se
+    // alcanzan 2 streams, o cuando vence su plazo de 12 s: lo que antes
+    // pase. Las tareas tardías que resuelvan después ya no cuentan, pero
+    // lo resuelto antes del plazo queda.
+    var salirOleada = null;
+    var promSalir = new Promise(function (res) { salirOleada = res; });
+    var carreras = [];
+    for (var k = 0; k < wave.length; k++) {
+      (function (t) {
+        carreras.push(resolverEmbed(t.url).then(function (r) {
+          agregar(t, r);
+          if (streams.length >= 2 && salirOleada) { var f = salirOleada; salirOleada = null; f(); }
+        }).catch(function () {}));
+      })(wave[k]);
     }
+    var espera = [Promise.all(carreras), promSalir];
+    if (typeof setTimeout !== 'undefined') {
+      espera.push(new Promise(function (res) {
+        setTimeout(function () { res(); }, 12000);
+      }));
+    }
+    await Promise.race(espera);
     console.log('[Henaojara] Oleada lista, resueltos: ' + streams.length);
   }
   console.log('[Henaojara] Resueltos: ' + streams.length);
