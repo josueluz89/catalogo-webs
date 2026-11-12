@@ -2,19 +2,25 @@
 // Portado a MasterScrap desde latinuvio (providers/henaojara.js), autor original Latinuvio.
 // Adaptado a QuickJS (sin cheerio/Buffer/matchAll/normalize) y filtrado a español latino y
 // subtitulado: se descartan los streams de español de España.
+//
+// Reescrito limpio 2026-11-12 (ronda catalogo-webs, grupo 4):
+// el getStreams anterior encadenaba filterWorkingStreams tras el tope de 55 s.
+// Esa validación re-descarga cada URL ya resuelta (el resolver ya fetcheó el
+// m3u8 para detectar calidad, así que la sonda no prueba nada nuevo en m3u8)
+// y en el arnés su temporizador de 7 s no corta un fetch bloqueado (curl -m 45,
+// AbortController ignorado; AGENTS.md §5: la garantía real es menos trabajo,
+// no un tope más corto). Medido en la ronda: AoT S1E1 77,5 s y DBS S1E1 60,8 s
+// (extraer ~55 s + sonda ~22 s); monoschinos y animeav1 no validan y devuelven
+// streams verificados por el propio resolver. henaojara hace lo mismo ahora:
+// sin validación, el peor caso es el tope de extraer (55 s) y la app corta
+// a los 60 s. AGENTS.md §5: no se re-baja un m3u8 solo para verificarlo si
+// la resolución ya es la prueba.
 
+// Tope de tiempo del provider (55 s): la app corta a los 60 s. El extractor
+// ya se autolimita (plazo por oleada + guarda de 30 s con 1 stream); este
+// tope es solo red de seguridad.
 import { extraer } from './extractor.js';
-import { filterWorkingStreams } from '../shared/validate.js';
 
-// Validación fail-open (AGENTS.md §5): la sonda ranged GET da 403 desde
-// datacenter en CDN que el reproductor sí abre; si la sonda mata todo lo
-// resuelto, se devuelve lo resuelto sin filtrar en vez de un 0 falso.
-
-// Tope de tiempo del provider (55 s): la app corta a los 60 s. Era 40 s
-// y descartaba streams ya conseguidos cuando el extractor corría lento
-// (observado: voe + mp4upload en mano y 0 devuelto); el extractor ya se
-// autolimita (plazo por oleada + guarda de 30 s con 1 stream), así que
-// este tope es solo red de seguridad y deja aire a la validación.
 function withTimeout(promise, ms) {
   if (typeof setTimeout === 'undefined') return promise;
   return Promise.race([
@@ -45,12 +51,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       return [];
     }),
     55000
-  ).then(function (streams) {
-    if (!streams || !streams.length) return [];
-    return filterWorkingStreams(streams).then(function (valid) {
-      return valid && valid.length ? valid : streams;
-    }).catch(function () { return streams; });
-  });
+  );
 }
 
 module.exports = { getStreams };

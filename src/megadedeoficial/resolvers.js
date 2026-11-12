@@ -10,7 +10,8 @@
 //        lo repetía 3 veces = ~60 s, todo el presupuesto del reproductor).
 //      · FileMoon: /api/videos/<id>/embed/details responde 404.
 //      · DoodStream / StreamTape / Waaw / OkRu: no aparecen en ningún embed de este sitio.
-//    Se conservan los cuatro que sí devuelven m3u8 hoy: StreamWish, VidHide, VOE y Vimeos.
+//    Se conservan los tres que sí devuelven m3u8 hoy: StreamWish, VidHide y Vimeos.
+//    VOE se retiró 2026-11-12: su gate ALTCHA no resuelve y quemaba ~6 s por bloque sin aportar nada.
 
 import { fetchText } from '../shared/http.js';
 
@@ -184,62 +185,6 @@ async function resolverVidhide(embedUrl, vencido) {
   }
 }
 
-// ── VOE ───────────────────────────────────────────────────────────────────────
-// Cadena del original: ROT13 de los caracteres ASCII → quitar separadores → base64 → +3 → invertir
-// → base64 → JSON con `source`.
-async function resolverVoe(embedUrl, vencido) {
-  try {
-    var html = await fetchText(embedUrl, { headers: { 'User-Agent': USER_AGENT } });
-    if (html.indexOf('window.location.href') !== -1 && html.length < 2000) {
-      var rm = html.match(/window\.location\.href\s*=\s*['"]([^'"]+)['"]/i);
-      if (rm) {
-        try {
-          var next = await fetchText(rm[1], { headers: { 'User-Agent': USER_AGENT } });
-          if (next) html = next;
-        } catch (e) {}
-      }
-    }
-    var jsonMatch = html.match(/<script type="application\/json">([\s\S]*?)<\/script>/);
-    if (jsonMatch) {
-      try {
-        var parsed = JSON.parse(jsonMatch[1].trim());
-        var encText = Array.isArray(parsed) ? parsed[0] : parsed;
-        if (typeof encText === 'string') {
-          var decoded = encText.replace(/[a-zA-Z]/g, function (c) {
-            var code = c.charCodeAt(0);
-            var limit = c <= 'Z' ? 90 : 122;
-            var shifted = code + 13;
-            return String.fromCharCode(limit >= shifted ? shifted : shifted - 26);
-          });
-          var ruido = ['@$', '^^', '~@', '%?', '*~', '!!', '#&'];
-          for (var i = 0; i < ruido.length; i++) decoded = decoded.split(ruido[i]).join('');
-          var b64_1 = localAtob(decoded);
-          if (b64_1) {
-            var shifted2 = '';
-            for (var j = 0; j < b64_1.length; j++) shifted2 += String.fromCharCode(b64_1.charCodeAt(j) - 3);
-            var reversed = shifted2.split('').reverse().join('');
-            var decrypted = localAtob(reversed);
-            if (decrypted) {
-              var data = JSON.parse(decrypted);
-              if (data && data.source) {
-                return {
-                  url: data.source,
-                  server: 'VOE',
-                  quality: '1080p',
-                  headers: { 'User-Agent': USER_AGENT, 'Referer': embedUrl }
-                };
-              }
-            }
-          }
-        }
-      } catch (e) {}
-    }
-    var m3 = html.match(/["'](https?:\/\/[^"']+?\.m3u8[^"']*?)["']/i);
-    if (m3) return { url: m3[1], server: 'VOE', quality: '1080p', headers: { 'Referer': embedUrl, 'User-Agent': USER_AGENT } };
-  } catch (e) {}
-  return null;
-}
-
 // ── Vimeos (Vimeo) ────────────────────────────────────────────────────────────
 async function resolverVimeos(embedUrl, vencido) {
   try {
@@ -315,7 +260,6 @@ async function resolverVimeos(embedUrl, vencido) {
 var MIRRORS = {
   STREAMWISH: ['hlswish', 'streamwish', 'hglink', 'hglamioz', 'audinifer', 'embedwish', 'awish', 'dwish', 'strwish', 'wishembed', 'wishfast', 'hanerix', 'sfastwish', 'jodwish', 'swhoi', 'swdyu', 'playerwish', 'filelions'],
   VIDHIDE: ['vidhide', 'minochinos', 'vadisov', 'vaiditv', 'amusemre', 'callistanise', 'vhaudm', 'mdfury', 'dintezuvio', 'acek-cdn', 'vedonm', 'vidhidepro', 'vidhidevip', 'masukestin', 'dramiyos', 'morencius'],
-  VOE: ['voe.sx', 'voe-sx', 'voex.sx', 'marissashare', 'cloudwindow'],
   VIMEOS: ['vimeos.net', 'vimeos.cc', 'vimeos.zip', 'vms.sh']
 };
 
@@ -336,7 +280,6 @@ export async function resolverEmbed(url, vencido, servidor) {
     var sn = String(servidor || '').toLowerCase();
     if (esEspejo(url, 'VIDHIDE') || sn.indexOf('vidhide') !== -1 || sn.indexOf('filelions') !== -1 || sn.indexOf('minochinos') !== -1) return await resolverVidhide(url, vencido);
     if (esEspejo(url, 'STREAMWISH') || sn.indexOf('streamwish') !== -1 || sn.indexOf('wish') !== -1 || sn.indexOf('hanerix') !== -1) return await resolverStreamwish(url, vencido);
-    if (esEspejo(url, 'VOE') || sn.indexOf('voe') !== -1) return await resolverVoe(url, vencido);
     if (esEspejo(url, 'VIMEOS') || sn.indexOf('vimeos') !== -1) return await resolverVimeos(url, vencido);
   } catch (e) {}
   return null;

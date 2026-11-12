@@ -1,6 +1,6 @@
 /**
  * pelisplusto - Built from src/pelisplusto/
- * Generated: 2026-11-05T00:27:34.622Z
+ * Generated: 2026-11-12T22:40:15.834Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -943,21 +943,6 @@ function getEmbedResolver(url) {
 
 // src/shared/powAes.js
 var import_crypto_js = __toESM(require("crypto-js"));
-function sha256Hex(texto) {
-  return import_crypto_js.default.SHA256(texto).toString(import_crypto_js.default.enc.Hex);
-}
-function resolverPoW(challenge, difficulty, salt) {
-  var prefijo = "";
-  for (var i = 0; i < difficulty; i++)
-    prefijo += "0";
-  var techo = 2e6;
-  for (var nonce = 0; nonce < techo; nonce++) {
-    if (sha256Hex(challenge + nonce).indexOf(prefijo) === 0) {
-      return import_crypto_js.default.SHA256(challenge + nonce + salt);
-    }
-  }
-  return null;
-}
 function aesCbcDescifrar(base64, llave) {
   try {
     var normal = String(base64 || "").replace(/-/g, "+").replace(/_/g, "/");
@@ -979,6 +964,7 @@ function aesCbcDescifrar(base64, llave) {
 }
 
 // src/pelisplusto/embed69.js
+var import_crypto_js2 = __toESM(require("crypto-js"));
 var MAIN_URL = "https://pelisplushd.bz";
 function clasificarIdioma(etiqueta) {
   var t = String(etiqueta || "").toLowerCase();
@@ -1019,16 +1005,13 @@ function preferirLatino(entradas) {
   }
   return lat.length > 0 ? lat : sub;
 }
-function resolverPaginaF(html) {
-  var mChallenge = html.match(/POW_CHALLENGE\s*=\s*'([^']+)'/);
-  var mDifficulty = html.match(/POW_DIFFICULTY\s*=\s*(\d+)/);
-  var mSalt = html.match(/POW_SALT\s*=\s*'([^']+)'/);
+function resolverPaginaEmbed(html) {
+  var mChallenge = html.match(/LINK_CHALLENGE\s*=\s*'([^']+)'/);
+  var mSalt = html.match(/LINK_SALT\s*=\s*'([^']+)'/);
   var mData = html.match(/let dataLink\s*=\s*(\[[\s\S]*?\]);/);
-  if (!mChallenge || !mDifficulty || !mSalt || !mData)
+  if (!mChallenge || !mSalt || !mData)
     return [];
-  var llave = resolverPoW(mChallenge[1], parseInt(mDifficulty[1], 10), mSalt[1]);
-  if (!llave)
-    return [];
+  var llave = import_crypto_js2.default.SHA256(mChallenge[1] + mSalt[1]);
   var data;
   try {
     data = JSON.parse(mData[1]);
@@ -1057,37 +1040,12 @@ function resolverPaginaF(html) {
   }
   return preferirLatino(dedupe(entradas));
 }
-function resolverPaginaVideo(html) {
-  var langs = {};
-  var reTab = /<li[^>]*data-lang="(\d+)"[^>]*>\s*<img[^>]*alt="([^"]*)"/gi;
-  var mt;
-  while ((mt = reTab.exec(html)) !== null) {
-    var langTab = clasificarIdioma(mt[2]);
-    if (langTab)
-      langs[mt[1]] = langTab;
-  }
-  var entradas = [];
-  var reSrv = /<li[^>]*onclick="playServerVast\('([^']+)'\)[^>]*data-lang="(\d+)"[^>]*>\s*<img[^>]*>\s*<span>([^<]*)<\/span>/gi;
-  var ms;
-  while ((ms = reSrv.exec(html)) !== null) {
-    var lang = langs[ms[2]];
-    if (!lang)
-      continue;
-    var url = ms[1];
-    if (url.indexOf("http") !== 0)
-      continue;
-    entradas.push({ url, label: etiquetaServidor(ms[3]), lang });
-  }
-  return preferirLatino(dedupe(entradas));
-}
 function resolveEmbed69Servers(embedUrl) {
   return fetchText(embedUrl, { headers: { Referer: MAIN_URL + "/" } }).then(function(html) {
     if (!html)
       return [];
     if (html.indexOf("let dataLink") !== -1)
-      return resolverPaginaF(html);
-    if (html.indexOf("playServerVast(") !== -1)
-      return resolverPaginaVideo(html);
+      return resolverPaginaEmbed(html);
     return [];
   }).catch(function() {
     return [];

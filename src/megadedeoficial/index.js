@@ -17,7 +17,7 @@
 //  - Presupuesto de 35 s para todo el provider.
 
 import { datosTMDB, rutaVidurl, buscarEnSitio, limpiarTitulo, consultaDe, pedirPagina, rutaVidurlDeHtml, paginaVidurl, HOST } from './sitio.js';
-import { resolverPoW, aesCbcDescifrar } from './cifrado.js';
+import { llaveEnlace, aesCbcDescifrar } from './cifrado.js';
 import { resolverEmbed, limpiarCabecerasVimeos } from './resolvers.js';
 import { calidadDe, servidorDe, tituloStream } from './labels.js';
 
@@ -125,15 +125,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       return [];
     }
 
-    // 2) Página /vidurl/: PoW + dataLink cifrado
+    // 2) Página /vidurl/: clave de enlace + dataLink cifrado
     var vid = await paginaVidurl(ruta);
     if (!vid) return [];
 
-    // 3) PoW -> llave AES, con presupuesto propio (20 s) tras paginaVidurl:
-    // el vencido() global puede venir ya agotado por TMDB + /vidurl/ y mataba
-    // el PoW en el nonce 0. El PoW no depende del presupuesto global.
-    var vencidoPow = crearVencido(20000);
-    var llave = resolverPoW(vid.challenge, vid.difficulty, vid.salt, vencidoPow);
+    // 3) Llave AES directa: SHA-256(challenge+salt), sin PoW (el sitio ya no lo sirve).
+    var llave = llaveEnlace(vid.challenge, vid.salt);
     if (!llave) return [];
 
     // 4) Descifrar y resolver solo los bloques latino/subtitulado
@@ -145,15 +142,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         console.log('[Megadede] Bloque descartado por idioma: ' + bloque.video_language);
         continue;
       }
-      // VOE al final de cada bloque: su gate ALTCHA no aporta y comía el
-      // presupuesto antes de que el bloque SUB tuviera su turno.
+      // VOE descartado de entrada: su gate ALTCHA no resuelve y quemaba ~6 s
+      // por bloque sin aportar ningún stream (medido 2026-11-12).
       var todosEmbeds = bloque.sortedEmbeds || [];
       var embeds = [];
       for (var oe = 0; oe < todosEmbeds.length; oe++) {
-        if (String((todosEmbeds[oe] || {}).servername || '').toLowerCase().indexOf('voe') === -1) embeds.push(todosEmbeds[oe]);
-      }
-      for (var ov = 0; ov < todosEmbeds.length; ov++) {
-        if (String((todosEmbeds[ov] || {}).servername || '').toLowerCase().indexOf('voe') !== -1) embeds.push(todosEmbeds[ov]);
+        if (String((todosEmbeds[oe] || {}).servername || '').toLowerCase().indexOf('voe') !== -1) continue;
+        embeds.push(todosEmbeds[oe]);
       }
       for (var e = 0; e < embeds.length; e++) {
         var embed = embeds[e] || {};

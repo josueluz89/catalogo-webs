@@ -1,6 +1,6 @@
 /**
  * megadedeoficial - Built from src/megadedeoficial/
- * Generated: 2026-10-22T08:00:36.511Z
+ * Generated: 2026-11-12T22:26:51.086Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -262,14 +262,13 @@ function paginaVidurl(ruta) {
       }
     }
     if (!grande) {
-      console.log("[Megadede] No se encontr\xF3 el script del PoW.");
+      console.log("[Megadede] No se encontr\xF3 el script del reproductor.");
       return null;
     }
-    var challengeM = grande.match(/const POW_CHALLENGE\s*=\s*'([^']+)'/);
-    var difficultyM = grande.match(/const POW_DIFFICULTY\s*=\s*(\d+)/);
-    var saltM = grande.match(/const POW_SALT\s*=\s*'([^']+)'/);
-    if (!challengeM || !difficultyM || !saltM) {
-      console.log("[Megadede] Sin par\xE1metros de PoW.");
+    var challengeM = grande.match(/(?:const|let)\s+LINK_CHALLENGE\s*=\s*'([^']+)'/);
+    var saltM = grande.match(/(?:const|let)\s+LINK_SALT\s*=\s*'([^']+)'/);
+    if (!challengeM || !saltM) {
+      console.log("[Megadede] Sin par\xE1metros de enlace (LINK_CHALLENGE/LINK_SALT).");
       return null;
     }
     var dataLinkM = grande.match(/(?:const|let)\s+dataLink\s*=\s*(\[[\s\S]*?\]);/);
@@ -288,7 +287,6 @@ function paginaVidurl(ruta) {
       return null;
     return {
       challenge: challengeM[1],
-      difficulty: parseInt(difficultyM[1], 10),
       salt: saltM[1],
       dataLink
     };
@@ -297,28 +295,8 @@ function paginaVidurl(ruta) {
 
 // src/megadedeoficial/cifrado.js
 var import_crypto_js = __toESM(require("crypto-js"));
-function sha256Hex(texto) {
-  return import_crypto_js.default.SHA256(texto).toString(import_crypto_js.default.enc.Hex);
-}
-function resolverPoW(challenge, difficulty, salt, vencido) {
-  var prefijo = "";
-  for (var i = 0; i < difficulty; i++)
-    prefijo += "0";
-  console.log("[Megadede] Resolviendo PoW (dificultad " + difficulty + ")...");
-  var techo = difficulty > 6 ? 2e5 : 5e6;
-  for (var nonce = 0; nonce < techo; nonce++) {
-    if ((nonce & 1023) === 0 && vencido()) {
-      console.log("[Megadede] PoW abandonado por presupuesto en el nonce " + nonce);
-      return null;
-    }
-    var hash = sha256Hex(challenge + nonce);
-    if (hash.indexOf(prefijo) === 0) {
-      console.log("[Megadede] PoW resuelto en nonce=" + nonce + " hash=" + hash.substring(0, 16) + "...");
-      return import_crypto_js.default.SHA256(challenge + nonce + salt);
-    }
-  }
-  console.log("[Megadede] PoW sin soluci\xF3n dentro del techo de intentos");
-  return null;
+function llaveEnlace(challenge, salt) {
+  return import_crypto_js.default.SHA256(String(challenge || "") + String(salt || ""));
 }
 function aesCbcDescifrar(base64, llave) {
   try {
@@ -350,19 +328,6 @@ function partesDeUrl(u) {
   var proto = m[1].toLowerCase();
   var host = m[2].toLowerCase();
   return { protocolo: proto, host, origin: proto + "://" + host, ruta: m[3] || "/" };
-}
-function localAtob(input) {
-  if (!input)
-    return "";
-  var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-  var str = String(input).replace(/=+$/, "").replace(/[\s\n\r\t]/g, "");
-  var output = "";
-  if (str.length % 4 === 1)
-    return "";
-  for (var bc = 0, bs, buffer, idx = 0; buffer = str.charAt(idx++); ~buffer && (bs = bc % 4 ? bs * 64 + buffer : buffer, bc++ % 4) ? output += String.fromCharCode(255 & bs >> (-2 * bc & 6)) : 0) {
-    buffer = chars.indexOf(buffer);
-  }
-  return output;
 }
 function unpackEval(payload, radix, symtab) {
   var chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -518,67 +483,6 @@ function resolverVidhide(embedUrl, vencido) {
     }
   });
 }
-function resolverVoe(embedUrl, vencido) {
-  return __async(this, null, function* () {
-    try {
-      var html = yield fetchText(embedUrl, { headers: { "User-Agent": USER_AGENT2 } });
-      if (html.indexOf("window.location.href") !== -1 && html.length < 2e3) {
-        var rm = html.match(/window\.location\.href\s*=\s*['"]([^'"]+)['"]/i);
-        if (rm) {
-          try {
-            var next = yield fetchText(rm[1], { headers: { "User-Agent": USER_AGENT2 } });
-            if (next)
-              html = next;
-          } catch (e) {
-          }
-        }
-      }
-      var jsonMatch = html.match(/<script type="application\/json">([\s\S]*?)<\/script>/);
-      if (jsonMatch) {
-        try {
-          var parsed = JSON.parse(jsonMatch[1].trim());
-          var encText = Array.isArray(parsed) ? parsed[0] : parsed;
-          if (typeof encText === "string") {
-            var decoded = encText.replace(/[a-zA-Z]/g, function(c) {
-              var code = c.charCodeAt(0);
-              var limit = c <= "Z" ? 90 : 122;
-              var shifted = code + 13;
-              return String.fromCharCode(limit >= shifted ? shifted : shifted - 26);
-            });
-            var ruido = ["@$", "^^", "~@", "%?", "*~", "!!", "#&"];
-            for (var i = 0; i < ruido.length; i++)
-              decoded = decoded.split(ruido[i]).join("");
-            var b64_1 = localAtob(decoded);
-            if (b64_1) {
-              var shifted2 = "";
-              for (var j = 0; j < b64_1.length; j++)
-                shifted2 += String.fromCharCode(b64_1.charCodeAt(j) - 3);
-              var reversed = shifted2.split("").reverse().join("");
-              var decrypted = localAtob(reversed);
-              if (decrypted) {
-                var data = JSON.parse(decrypted);
-                if (data && data.source) {
-                  return {
-                    url: data.source,
-                    server: "VOE",
-                    quality: "1080p",
-                    headers: { "User-Agent": USER_AGENT2, "Referer": embedUrl }
-                  };
-                }
-              }
-            }
-          }
-        } catch (e) {
-        }
-      }
-      var m3 = html.match(/["'](https?:\/\/[^"']+?\.m3u8[^"']*?)["']/i);
-      if (m3)
-        return { url: m3[1], server: "VOE", quality: "1080p", headers: { "Referer": embedUrl, "User-Agent": USER_AGENT2 } };
-    } catch (e) {
-    }
-    return null;
-  });
-}
 function resolverVimeos(embedUrl, vencido) {
   return __async(this, null, function* () {
     try {
@@ -659,7 +563,6 @@ function resolverVimeos(embedUrl, vencido) {
 var MIRRORS = {
   STREAMWISH: ["hlswish", "streamwish", "hglink", "hglamioz", "audinifer", "embedwish", "awish", "dwish", "strwish", "wishembed", "wishfast", "hanerix", "sfastwish", "jodwish", "swhoi", "swdyu", "playerwish", "filelions"],
   VIDHIDE: ["vidhide", "minochinos", "vadisov", "vaiditv", "amusemre", "callistanise", "vhaudm", "mdfury", "dintezuvio", "acek-cdn", "vedonm", "vidhidepro", "vidhidevip", "masukestin", "dramiyos", "morencius"],
-  VOE: ["voe.sx", "voe-sx", "voex.sx", "marissashare", "cloudwindow"],
   VIMEOS: ["vimeos.net", "vimeos.cc", "vimeos.zip", "vms.sh"]
 };
 function esEspejo(url, grupo) {
@@ -679,8 +582,6 @@ function resolverEmbed(url, vencido, servidor) {
         return yield resolverVidhide(url, vencido);
       if (esEspejo(url, "STREAMWISH") || sn.indexOf("streamwish") !== -1 || sn.indexOf("wish") !== -1 || sn.indexOf("hanerix") !== -1)
         return yield resolverStreamwish(url, vencido);
-      if (esEspejo(url, "VOE") || sn.indexOf("voe") !== -1)
-        return yield resolverVoe(url, vencido);
       if (esEspejo(url, "VIMEOS") || sn.indexOf("vimeos") !== -1)
         return yield resolverVimeos(url, vencido);
     } catch (e) {
@@ -841,8 +742,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       var vid = yield paginaVidurl(ruta);
       if (!vid)
         return [];
-      var vencidoPow = crearVencido(2e4);
-      var llave = resolverPoW(vid.challenge, vid.difficulty, vid.salt, vencidoPow);
+      var llave = llaveEnlace(vid.challenge, vid.salt);
       if (!llave)
         return [];
       var streams = [];
@@ -856,12 +756,9 @@ function getStreams(tmdbId, mediaType, season, episode) {
         var todosEmbeds = bloque.sortedEmbeds || [];
         var embeds = [];
         for (var oe = 0; oe < todosEmbeds.length; oe++) {
-          if (String((todosEmbeds[oe] || {}).servername || "").toLowerCase().indexOf("voe") === -1)
-            embeds.push(todosEmbeds[oe]);
-        }
-        for (var ov = 0; ov < todosEmbeds.length; ov++) {
-          if (String((todosEmbeds[ov] || {}).servername || "").toLowerCase().indexOf("voe") !== -1)
-            embeds.push(todosEmbeds[ov]);
+          if (String((todosEmbeds[oe] || {}).servername || "").toLowerCase().indexOf("voe") !== -1)
+            continue;
+          embeds.push(todosEmbeds[oe]);
         }
         for (var e = 0; e < embeds.length; e++) {
           var embed = embeds[e] || {};

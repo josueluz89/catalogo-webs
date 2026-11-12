@@ -154,7 +154,10 @@ export function rutaVidurlDeHtml(html) {
   return valor;
 }
 
-// Página /vidurl/…: parámetros del PoW + dataLink cifrado.
+// Página /vidurl/…: clave de enlace + dataLink cifrado.
+// Esquema vigente (2026-11-12): la página trae `const LINK_CHALLENGE` y
+// `const LINK_SALT`; la llave AES es SHA-256(challenge+salt) directa, sin PoW.
+// El esquema anterior (POW_CHALLENGE / POW_DIFFICULTY / POW_SALT) ya no existe.
 export async function paginaVidurl(ruta) {
   var url = HOST + ruta;
   console.log('[Megadede] Vidurl: ' + url);
@@ -171,15 +174,14 @@ export async function paginaVidurl(ruta) {
     if (scripts[i].length > 5000) { grande = scripts[i]; break; }
   }
   if (!grande) {
-    console.log('[Megadede] No se encontró el script del PoW.');
+    console.log('[Megadede] No se encontró el script del reproductor.');
     return null;
   }
 
-  var challengeM = grande.match(/const POW_CHALLENGE\s*=\s*'([^']+)'/);
-  var difficultyM = grande.match(/const POW_DIFFICULTY\s*=\s*(\d+)/);
-  var saltM = grande.match(/const POW_SALT\s*=\s*'([^']+)'/);
-  if (!challengeM || !difficultyM || !saltM) {
-    console.log('[Megadede] Sin parámetros de PoW.');
+  var challengeM = grande.match(/(?:const|let)\s+LINK_CHALLENGE\s*=\s*'([^']+)'/);
+  var saltM = grande.match(/(?:const|let)\s+LINK_SALT\s*=\s*'([^']+)'/);
+  if (!challengeM || !saltM) {
+    console.log('[Megadede] Sin parámetros de enlace (LINK_CHALLENGE/LINK_SALT).');
     return null;
   }
   var dataLinkM = grande.match(/(?:const|let)\s+dataLink\s*=\s*(\[[\s\S]*?\]);/);
@@ -198,7 +200,6 @@ export async function paginaVidurl(ruta) {
 
   return {
     challenge: challengeM[1],
-    difficulty: parseInt(difficultyM[1], 10),
     salt: saltM[1],
     dataLink: dataLink
   };

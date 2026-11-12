@@ -1,39 +1,26 @@
-// cifrado.js — PoW (SHA-256 hashcash) y AES-256-CBC del sitio, con crypto-js empaquetado.
+// cifrado.js — Clave de enlace y AES-256-CBC del reproductor vidurl de
+// megadede.mobi (ahora servido como EMBED69).
+//
+// Esquema vigente (2026-11-12, verificado contra el HTML real de
+// /vidurl/tt15239678/ y /vidurl/tt1190634-1x01/):
+//   const LINK_CHALLENGE = '<hex>'; const LINK_SALT = '<hex>';
+//   llave AES = SHA-256(LINK_CHALLENGE + LINK_SALT) — directa, SIN PoW.
+//   Cada enlace: base64( IV(16 bytes) + AES-256-CBC(plaintext) ).
+// El PoW hashcash (POW_CHALLENGE / POW_DIFFICULTY / POW_SALT) ya no lo sirve
+// el sitio: la página no trae esos nombres y el provider moría en
+// "Sin parámetros de PoW." con 0 streams. Se elimina el PoW entero.
 //
 // El original usaba require('crypto') de Node (createHash / createDecipheriv), que no existe en
 // el runtime del reproductor. CryptoJS viene empaquetado por build.js, así que se sustituye:
-//   nodeCrypto.createHash('sha256').update(x).digest('hex')  ->  CryptoJS.SHA256(x).toString(CryptoJS.enc.Hex)
 //   nodeCrypto.createHash('sha256').update(x).digest()       ->  CryptoJS.SHA256(x)   (WordArray de 32 bytes)
 //   createDecipheriv('aes-256-cbc', llave, iv)               ->  CryptoJS.AES.decrypt(..., {mode: CBC, padding: Pkcs7})
-// Comprobado contra node:crypto con el dataLink real: mismo hash, misma llave y mismos 9 enlaces.
+// Comprobado contra node:crypto con el dataLink real: misma llave y mismos 9 enlaces.
 
 import CryptoJS from 'crypto-js';
 
-export function sha256Hex(texto) {
-  return CryptoJS.SHA256(texto).toString(CryptoJS.enc.Hex);
-}
-
-// Fuerza bruta del PoW del sitio: sha256(challenge + nonce) debe empezar con `difficulty` ceros.
-// Devuelve la llave AES (sha256 crudo de challenge+nonce+salt) o null si no la encuentra o se
-// agota el presupuesto. En el sitio medido la dificultad es 3 (~3.800 intentos, ~30 ms con CryptoJS).
-export function resolverPoW(challenge, difficulty, salt, vencido) {
-  var prefijo = '';
-  for (var i = 0; i < difficulty; i++) prefijo += '0';
-  console.log('[Megadede] Resolviendo PoW (dificultad ' + difficulty + ')...');
-  var techo = difficulty > 6 ? 200000 : 5000000; // el original cortaba en 10M nonces
-  for (var nonce = 0; nonce < techo; nonce++) {
-    if ((nonce & 1023) === 0 && vencido()) {
-      console.log('[Megadede] PoW abandonado por presupuesto en el nonce ' + nonce);
-      return null;
-    }
-    var hash = sha256Hex(challenge + nonce);
-    if (hash.indexOf(prefijo) === 0) {
-      console.log('[Megadede] PoW resuelto en nonce=' + nonce + ' hash=' + hash.substring(0, 16) + '...');
-      return CryptoJS.SHA256(challenge + nonce + salt);
-    }
-  }
-  console.log('[Megadede] PoW sin solución dentro del techo de intentos');
-  return null;
+// Llave AES del enlace: SHA-256 crudo de challenge+salt (32 bytes, sin PoW).
+export function llaveEnlace(challenge, salt) {
+  return CryptoJS.SHA256(String(challenge || '') + String(salt || ''));
 }
 
 // AES-256-CBC del sitio: los primeros 16 bytes son el IV y el resto el texto cifrado.
