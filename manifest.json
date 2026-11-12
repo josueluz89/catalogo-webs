@@ -150,48 +150,6 @@
       ]
     },
     {
-      "id": "pelisplusto",
-      "name": "Pelisplusto",
-      "description": "Películas y series en latino/sub desde PelisPlusHD (vía embed69). 1.1.0: embed69 resuelto de verdad — /f/ con PoW SHA-256 + AES-256-CBC (enlaces descifrados a VOE/StreamWish/VidHide) y /video/ con servidores en claro; uqlink.php ya no existe en el sitio. Duna: Parte dos sigue en 0: el sitio la eliminó (su ficha da 404).",
-      "version": "1.1.0",
-      "author": "Masters",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/pelisplusto.js",
-      "enabled": true,
-      "formats": [
-        "m3u8",
-        "mp4"
-      ],
-      "logo": "https://www.google.com/s2/favicons?domain=pelisplushd.bz&sz=128",
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
-      "id": "vimeus",
-      "name": "Vimeus",
-      "description": "Películas y series en latino desde vimeus.com (Vimeos). Solo español latino y subtitulado: se descartan los enlaces de España.",
-      "version": "1.0.0",
-      "author": "Masters",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/vimeus.js",
-      "enabled": true,
-      "formats": [
-        "m3u8",
-        "mp4"
-      ],
-      "logo": "https://www.google.com/s2/favicons?domain=vimeus.com&sz=128",
-      "contentLanguage": [
-        "es"
-      ]
-    },
-    {
       "id": "masters",
       "name": "Masters (GnulaHD)",
       "description": "DESHABILITADO 2026-09-23: gnulahd.nu y ww3 devuelven 502/timeout. Scraper de GnulaHD que proporciona enlaces de películas y series en Latino, Castellano y Subtitulado.",

@@ -40,7 +40,6 @@ const OBJETIVOS = {
   hackstore:             { origen: 'adrian+latinuvio', file: 'hackstore2.js' },
   cinemacity:            { origen: 'adrian',    file: 'cinemacity.js' },
   videasy:               { origen: 'adrian',    file: 'videasy.js' },
-  vimeus:                { origen: 'latinuvio', file: 'vimeus.js' },
   areshd:                { origen: 'latinuvio', file: 'areshd.js' },
   doramasflix:           { origen: 'latinuvio', file: 'doramasflix.js', casos: CASOS_DORAMA },
   verpelis:              { origen: 'latinuvio', file: 'verpelis.js' },
