@@ -542,7 +542,7 @@ async function resolveFastream(embedUrl) {
     return null;
 }
 
-async function resolveEmbed(embedUrl) {
+async function resolveEmbed(embedUrl, pageReferer) {
     if (isMirror(embedUrl, "STREAMWISH")) return resolveStreamwish(embedUrl);
     if (isMirror(embedUrl, "VIDHIDE"))    return resolveVidhide(embedUrl);
     if (isMirror(embedUrl, "FILEMOON"))   return resolveFilemoon(embedUrl);
@@ -554,10 +554,12 @@ async function resolveEmbed(embedUrl) {
     if (u.includes("fastream.to") || u.includes("fastream.co")) return resolveFastream(embedUrl);
     // Shared resolvers cover the newer mirror hosts this provider hands out
     // (hglink.to -> StreamWish, morencius.com/luluvdo -> VidHide, ...).
+    // pageReferer is the pelis182 page that embedded the player: wrapper
+    // players with hotlink protection (paulinito) 403 without it (2026-11-19).
     try {
         const cr = require("./cdn_resolvers.js");
         if (cr && typeof cr.resolveEmbed === "function") {
-            const s = await cr.resolveEmbed(embedUrl);
+            const s = await cr.resolveEmbed(embedUrl, pageReferer);
             if (s && s.url) {
                 return {
                     url: s.url,
@@ -766,7 +768,7 @@ async function getStreamsSitio(id, type, season, episode) {
                 if (embedUrl.includes("youtube.com")) continue;
                 if (embedUrl.startsWith("//")) embedUrl = "https:" + embedUrl;
 
-                const resolved = await resolveEmbed(embedUrl);
+                const resolved = await resolveEmbed(embedUrl, bestMatch.url);
                 if (resolved && resolved.url) {
                     streams.push({
                         name: "Pelis182",
@@ -825,7 +827,7 @@ async function getStreamsSitio(id, type, season, episode) {
             }
 
             if (epUrl) {
-                const resolved = await resolveEmbed(epUrl);
+                const resolved = await resolveEmbed(epUrl, bestMatch.url);
                 if (resolved && resolved.url) {
                     streams.push({
                         name: "Pelis182",
