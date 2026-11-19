@@ -7429,9 +7429,9 @@ var require_cdn_resolvers = __commonJS({
         return null;
       });
     }
-    function resolveGenericPage(embedUrl) {
+    function resolveGenericPage(embedUrl, pageReferer) {
       return __async(this, null, function* () {
-        const html = yield fetchPage(embedUrl, embedUrl);
+        const html = yield fetchPage(embedUrl, pageReferer || embedUrl);
         if (!html)
           return null;
         let m3u8 = extractM3u8(html);
@@ -7464,11 +7464,11 @@ var require_cdn_resolvers = __commonJS({
         return { url: m3u8, server: "Wrapper", quality: "1080p", headers: { "User-Agent": UA, Referer: host || embedUrl } };
       });
     }
-    function resolveEmbed2(embedUrl) {
+    function resolveEmbed2(embedUrl, pageReferer) {
       return __async(this, null, function* () {
         const unwrapped = decodeEmbedShortener(embedUrl);
         if (unwrapped) {
-          const inner = yield resolveEmbed2(unwrapped);
+          const inner = yield resolveEmbed2(unwrapped, pageReferer);
           if (inner)
             return inner;
         }
@@ -7499,7 +7499,7 @@ var require_cdn_resolvers = __commonJS({
         else if (u.includes("ok.ru") || u.includes("odnoklassniki"))
           s = yield resolveOkru(embedUrl);
         if (!s)
-          s = yield resolveGenericPage(embedUrl);
+          s = yield resolveGenericPage(embedUrl, pageReferer);
         if (s && s.url && s.url !== embedUrl && !isKnownFakeDirectUrl(s.url))
           return yield validateStream(s);
         return null;
@@ -8184,7 +8184,7 @@ function resolveFastream(embedUrl) {
     return null;
   });
 }
-function resolveEmbed(embedUrl) {
+function resolveEmbed(embedUrl, pageReferer) {
   return __async(this, null, function* () {
     if (isMirror(embedUrl, "STREAMWISH"))
       return resolveStreamwish(embedUrl);
@@ -8206,7 +8206,7 @@ function resolveEmbed(embedUrl) {
     try {
       const cr = require_cdn_resolvers();
       if (cr && typeof cr.resolveEmbed === "function") {
-        const s = yield cr.resolveEmbed(embedUrl);
+        const s = yield cr.resolveEmbed(embedUrl, pageReferer);
         if (s && s.url) {
           return {
             url: s.url,
@@ -8402,7 +8402,7 @@ function getStreamsSitio(id, type, season, episode) {
             continue;
           if (embedUrl.startsWith("//"))
             embedUrl = "https:" + embedUrl;
-          const resolved = yield resolveEmbed(embedUrl);
+          const resolved = yield resolveEmbed(embedUrl, bestMatch.url);
           if (resolved && resolved.url) {
             streams.push({
               name: "Pelis182",
@@ -8457,7 +8457,7 @@ function getStreamsSitio(id, type, season, episode) {
           }
         }
         if (epUrl) {
-          const resolved = yield resolveEmbed(epUrl);
+          const resolved = yield resolveEmbed(epUrl, bestMatch.url);
           if (resolved && resolved.url) {
             streams.push({
               name: "Pelis182",
