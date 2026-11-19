@@ -398,9 +398,13 @@ async function resolvePrimeload(embedUrl) {
  * Generic wrapper-player resolver: some sites embed their own player page
  * (e.g. paulinito.com/player/<id>/ from pelis182's universal-vast-player) which
  * simply prints the final m3u8/mp4 in its source. Fetch and extract it.
+ * NOTE 2026-11-19: wrapper players with hotlink protection (paulinito) 403
+ * unless the Referer is the page that embedded them — a self-Referer or none
+ * gives 403, the pelis182 detail page gives 200. So the caller passes the
+ * embedding page URL as pageReferer; it defaults to the embed URL itself.
  */
-async function resolveGenericPage(embedUrl) {
-  const html = await fetchPage(embedUrl, embedUrl);
+async function resolveGenericPage(embedUrl, pageReferer) {
+  const html = await fetchPage(embedUrl, pageReferer || embedUrl);
   if (!html) return null;
   let m3u8 = extractM3u8(html);
   if (!m3u8) {
@@ -424,11 +428,11 @@ async function resolveGenericPage(embedUrl) {
 /**
  * Generic dispatcher: detects host and calls the matching resolver, validates the result.
  */
-async function resolveEmbed(embedUrl) {
+async function resolveEmbed(embedUrl, pageReferer) {
   // unwrap embed-shortener JWTs first
   const unwrapped = decodeEmbedShortener(embedUrl);
   if (unwrapped) {
-    const inner = await resolveEmbed(unwrapped);
+    const inner = await resolveEmbed(unwrapped, pageReferer);
     if (inner) return inner;
   }
   const u = (embedUrl || '').toLowerCase();
@@ -446,7 +450,7 @@ async function resolveEmbed(embedUrl) {
   else if (u.includes('dood') || u.includes('ds2play')) s = await resolveDood(embedUrl);
   else if (u.includes('ok.ru') || u.includes('odnoklassniki')) s = await resolveOkru(embedUrl);
   // last resort: treat the URL as a wrapper player page and scrape the media URL
-  if (!s) s = await resolveGenericPage(embedUrl);
+  if (!s) s = await resolveGenericPage(embedUrl, pageReferer);
   if (s && s.url && s.url !== embedUrl && !isKnownFakeDirectUrl(s.url)) return await validateStream(s);
   return null;
 }
